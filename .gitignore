@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
+
+# Test and type caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Build artifacts: the index is always rebuildable from the corpus
+index/
+*.npy
+*.faiss
+
+# Private measurement artifacts. The eval set, per-question results and failure
+# analysis are kept in the private mirror, never here: they carry note paths and
+# verbatim chunk text from a private corpus. See README, "Two corpora".
+eval/private/
+results/
