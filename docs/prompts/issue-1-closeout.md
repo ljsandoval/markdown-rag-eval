@@ -26,7 +26,7 @@ Reference the spec sections in the commit message rather than restating them.
 The README you added is issue **#16**'s subject, and #16 is still open claiming work that now partly exists.
 
 - Comment on #16 pointing at commit `716b009` and saying what the stub already covers.
-- Then **rescope #16's body** to only what the stub lacks, against acceptance criterion 11: how to run it against the fixture corpus, that reported numbers come from a private corpus and are not reproducible, and links to `docs/specs/`, `docs/adr/` and `fixtures/README.md`. Leave it open.
+- Then **rescope #16's body** to only what the stub lacks, against acceptance criterion 11: how to run it against the fixture corpus, that reported numbers come from a private corpus and are not reproducible, and links to `docs/specs/`, `docs/adr/` and `examples/README.md`. Leave it open.
 - Add a line to #16 noting it is a **prerequisite for every code issue**, not an independent one. My dependency graph had this backwards.
 
 ## Do not decide this one

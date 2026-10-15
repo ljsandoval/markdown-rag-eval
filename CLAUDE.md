@@ -10,7 +10,7 @@ One GitHub issue per unit of work. **Your brief is the issue plus the spec secti
 |---|---|
 | `docs/specs/` | The **contract**: what is true of the finished thing. Authoritative. |
 | `docs/adr/` | Decisions, and what was rejected. Bodies immutable; only `status:` changes. |
-| `fixtures/README.md` | The corpus the tests assert against, and why each note is in it. |
+| `examples/README.md` | The corpus the tests assert against, and why each note is in it. |
 
 Issues reference spec sections and never restate them. **If an issue and the spec disagree, the spec wins** — and say so in a comment on the issue.
 
@@ -33,7 +33,7 @@ Run `review-brief` before implementing against a contract that has not been revi
 
 **Commits close issues.** Put `Fixes #N` in the commit message and push to `main`. Do not close an issue by hand — the commit is what sets the state, and if the keyword stops firing that is something to report.
 
-**`fixtures/corpus/` is frozen.** Tests assert against it and published numbers are measured on it, so editing a note silently invalidates both. A test failing because the corpus looks wrong is a finding to report, not a file to fix.
+**`examples/corpus/` is frozen.** It is **example data, not a test input** — the module suite asserts module behaviour and does not assert the shape of examples (ADR 0007). It is frozen because published numbers are measured against it, and every results file records a `corpus_hash` so a stale number is detectable. Test inputs go in `tests/fixtures/`, which is not frozen and should grow freely.
 
 **Do the issue you were given.** Other open issues are not yours unless you were named to them.
 

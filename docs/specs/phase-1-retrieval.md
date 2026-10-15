@@ -45,7 +45,7 @@ src/mdrag/
     evalset.py     # load and validate the eval set
     metrics.py     # recall, rank, MRR
     cli.py         # the two commands
-fixtures/corpus/   # the fixture corpus, shipped and public
+examples/corpus/   # the fixture corpus, shipped and public
 eval/
     fixture.yaml   # eval set for the fixture corpus, public
     private/       # vault eval set, gitignored, lives in the private mirror
@@ -398,12 +398,13 @@ One JSON file per run, written to a path the caller names.
   "run": {
     "timestamp": "2026-10-08T19:04:11Z",
     "code_commit": "a1b2c3d",
-    "corpus_path": "fixtures/corpus",
+    "corpus_path": "examples/corpus",
+    "corpus_hash": "sha256:<hash of the corpus content>",
     "files_discovered": 14,
     "files_indexed": 12,
     "chunk_count": 96,
     "exclude_patterns": ["people/"],
-    "exclude_source": "fixtures/corpus/.mdragignore",
+    "exclude_source": "examples/corpus/.mdragignore",
     "model_id": "<model id>",
     "model_revision": "<pinned commit hash>",
     "dimensions": 384,
@@ -430,6 +431,8 @@ One JSON file per run, written to a path the caller names.
 
 `per_question` is the point of the file. An aggregate alone cannot be argued with; a reader has to be able to open the failures and see what came back instead. Record the top 10 retrieved entries per question regardless of `k`.
 
+**`corpus_hash` is what makes a published number falsifiable.** It is a content hash over the indexed files, so "this number was measured against a corpus that has since changed" is detectable from the artifact rather than depending on anyone having run a test. It replaces the example-data integrity test that used to carry that job badly (ADR 0007).
+
 **Two file counts, not one.** `files_discovered` is what was on disk; `files_indexed` is what survived the exclusions and is **the denominator for every number in the file**. One count cannot carry both, and the ambiguity has already caused confusion twice - once over the fixture-integrity test and once over this example, which previously showed 14 alongside an exclusion that removes two.
 
 Recording `code_commit` and the full model provenance is what makes a number re-derivable three months later. The provenance fields here are exactly criterion 8a's list; this example is complete rather than abridged, because an abridged contract example is a trap.
@@ -452,7 +455,7 @@ Phase 1 is done when every line below is true. Each is checkable by someone othe
 
 | # | Criterion |
 |---|---|
-| 1 | `fixtures/corpus/` holds 10 to 15 notes with the deliberate properties listed in `fixtures/README.md` |
+| 1 | `examples/corpus/` holds 10 to 15 notes with the deliberate properties listed in `examples/README.md` |
 | 2 | `eval/fixture.yaml` exists and every expected note resolves to a real file |
 | 3 | The private vault eval set holds 25 questions, 10 flagged `holdout`, committed before results were seen, with the composition minimums met |
 | 4 | `uv run mdrag index` and `uv run mdrag eval` both run from a clean checkout against the fixture corpus |
@@ -462,7 +465,7 @@ Phase 1 is done when every line below is true. Each is checkable by someone othe
 | 8 | The index build emits a chunk-length histogram **and the count of chunks exceeding the model's max sequence length** |
 | 8a | Index metadata and every results file record `model_id`, `model_revision`, `dimensions`, `max_seq_length`, `normalized`, and both prefixes |
 | 8b | Characterization is recorded **for the vault**: **both** note counts (discovered and indexed), chunk count, length histogram, chunks over `max_seq_length`, token total, build time |
-| 8c | Every results file records `exclude_patterns` and `exclude_source`, so a run that excluded nothing is visible in its own output |
+| 8c | Every results file records `exclude_patterns`, `exclude_source` and `corpus_hash`, so a run that excluded nothing, or measured a corpus that has since changed, is visible in its own output |
 | 9 | The test inventory below passes; `ruff` and `mypy` are clean |
 | 10 | A written failure analysis exists, naming the mechanism behind each miss |
 | 11 | `README.md` exists at the repo root: what this is, its status, how to run it against the fixture corpus, and that reported numbers come from a private corpus |
@@ -473,12 +476,7 @@ Criterion 10 is the one that converts a number into evidence of engineering, and
 
 Named here so the spec, not the implementer's mood, decides what is covered.
 
-**Fixture corpus integrity** - these guard the fixture against drift, because a broken fixture silently invalidates every number measured against it. This test is standalone and does not go through the loader, so **the expected file count is the raw on-disk count, including excluded paths** - currently 14. Post-exclusion (what the loader actually indexes) is a different figure, currently 12, and belongs to the exclusion tests below, not this one.
-
-- Expected file count (raw on-disk, 14) and every file parses
-- Every `[[wikilink]]` in the corpus resolves to a file that exists, using the rules in "Wikilink extraction and resolution". Note that this assertion is **specific to the fixture**: an unresolved link is normal in a real corpus and is never an error there (ADR 0005)
-- Every note has a frontmatter block with `tags`
-- No note links to itself
+**Example data is not tested here.** `examples/corpus/` is example data, not a test input, and the module suite asserts module behaviour (ADR 0007). Wikilink and chunker cases below run against purpose-built inputs in `tests/fixtures/` or `tmp_path`, which is what lets them cover cases the example corpus does not contain.
 
 **Chunker**
 
@@ -546,7 +544,7 @@ Two, both decided by measurement rather than in advance. Record the answer in th
 - the private reference notes on embeddings - how the retrieval half works
 - the private reference notes on BM25 - the baseline, term by term
 - the private reference notes on eval design - eval design, and what a 25-question set can and cannot resolve
-- `fixtures/README.md` - the fixture corpus and its deliberate properties
+- `examples/README.md` - the fixture corpus and its deliberate properties
 
 Design reasoning, options considered and rejected directions live in private notes outside this
 repository. Where a decision is load-bearing for the code, it is recorded as an ADR here.
