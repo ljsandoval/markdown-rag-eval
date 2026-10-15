@@ -441,7 +441,7 @@ Named here so the spec, not the implementer's mood, decides what is covered.
 **Fixture corpus integrity** - these guard the fixture against drift, because a broken fixture silently invalidates every number measured against it. This test is standalone and does not go through the loader, so **the expected file count is the raw on-disk count, including excluded paths** - currently 14. Post-exclusion (what the loader actually indexes) is a different figure, currently 12, and belongs to the exclusion tests below, not this one.
 
 - Expected file count (raw on-disk, 14) and every file parses
-- Every `[[wikilink]]` in the corpus resolves to a file that exists, using the target-extraction rule in "Chunking rules", rule 7
+- Every `[[wikilink]]` in the corpus resolves to a file that exists, using the rules in "Wikilink extraction and resolution". Note that this assertion is **specific to the fixture**: an unresolved link is normal in a real corpus and is never an error there (ADR 0005)
 - Every note has a frontmatter block with `tags`
 
 **Chunker**
