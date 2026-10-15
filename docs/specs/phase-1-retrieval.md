@@ -53,6 +53,8 @@ eval/
 
 One module per concern, each independently testable. `retrieve.py` must not import `chunker.py` - it consumes an index, not a corpus.
 
+**Prerequisite:** `README.md` must exist at the repo root before `uv sync` will work at all. `pyproject.toml` names it in the `readme` field, and hatchling refuses to build the package without the file existing - this is a build prerequisite, not a documentation nicety.
+
 ## Data shapes
 
 Pydantic models, so validation errors surface at the boundary rather than as a `KeyError` three calls later.
@@ -382,10 +384,10 @@ Criterion 10 is the one that converts a number into evidence of engineering, and
 
 Named here so the spec, not the implementer's mood, decides what is covered.
 
-**Fixture corpus integrity** - these guard the fixture against drift, because a broken fixture silently invalidates every number measured against it.
+**Fixture corpus integrity** - these guard the fixture against drift, because a broken fixture silently invalidates every number measured against it. This test is standalone and does not go through the loader, so **the expected file count is the raw on-disk count, including excluded paths** - currently 14. Post-exclusion (what the loader actually indexes) is a different figure, currently 12, and belongs to the exclusion tests below, not this one.
 
-- Expected file count and every file parses
-- Every `[[wikilink]]` in the corpus resolves to a file that exists
+- Expected file count (raw on-disk, 14) and every file parses
+- Every `[[wikilink]]` in the corpus resolves to a file that exists, using the target-extraction rule in "Chunking rules", rule 7
 - Every note has a frontmatter block with `tags`
 
 **Chunker**
