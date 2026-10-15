@@ -8,6 +8,8 @@ model: opus
 
 Argument: `$ARGUMENTS` — an issue number, a label, or empty meaning every open issue.
 
+**Before anything else, state which model you are.** One line. This skill pins a model deliberately, the pin is a silent per-invocation override that the status line does not reflect, and the review is the one procedure here where the model choice is the point. Saying it makes the pin verifiable in the moment rather than only afterwards in the session transcript.
+
 Review the brief before anything is built against it: the spec, and the issues that reference it. Find gaps. Change as little as possible.
 
 **You are not implementing anything.** No feature code, no tests for features, no closing issues.
