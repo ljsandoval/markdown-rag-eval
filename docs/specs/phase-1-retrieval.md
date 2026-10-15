@@ -129,7 +129,7 @@ Split at ATX headings. The rules exist because each one has a failure case in th
 4. **Content before the first heading becomes one chunk** with `heading = None`.
 5. **Tables and Mermaid blocks are never split**, which follows from rules 2 and 3 - neither contains a heading line - but the fixture asserts it directly because it is the rule most likely to break under a future refactor.
 6. **No floor, no ceiling in this phase.** Chunks are emitted at whatever size the headings imply. Instead, the index build **writes a chunk-length histogram**, which is the input to the floor/ceiling decision. Do not guess those bounds before the histogram exists. **The ceiling is not purely a tuning knob.** Small embedding models cap at 256 or 512 tokens and **silently truncate** past it, so a long chunk produces an ordinary-looking vector representing only its opening. The ceiling therefore has to be derived from the chosen model's max sequence length. The index build **must log how many chunks exceed it**, which makes the truncation visible instead of invisible. See the private reference notes on embeddings.
-7. `wikilinks` are extracted per chunk with `\[\[([^\]|#]+)` - target only, alias and heading fragment discarded.
+7. `wikilinks` are extracted per chunk. The rules are their own section below, because there are more of them than a chunking rule should carry.
 
 ## Embedding model
 
@@ -201,6 +201,47 @@ Recording a model id is not sufficient: a HuggingFace repo can be updated in pla
 The index load aborts on a mismatch of `model_id` **or** `model_revision` against what is requested, for the reason in the Retrieval section: the arithmetic still works and the rankings are quietly wrong.
 
 First run downloads the model to the local cache; every later run is offline. The index build must not require the network once the cache is warm, and a test with the network unavailable is the honest way to know that.
+
+## Wikilink extraction and resolution
+
+Decisions and the measurements behind them are in ADR 0005. This states the mechanics.
+
+### Extraction
+
+Match `(!?)\[\[([^\]]+)\]\]`, capturing the embed marker and the full inner text. Then split the inner text on the first `|` (alias) and the first `#` (heading or block subpath), keeping the part before both.
+
+Skip, in this order, before matching:
+
+1. **Fenced code blocks.** Reuse the chunker's fence state rather than re-deriving it.
+2. **Inline code spans** - text between single backticks. **108 wikilinks in the target corpus sit inside these**, more than the 49 inside fenced blocks, so missing this is the larger error.
+
+Then normalize the target: strip surrounding whitespace, take the final `/`-separated segment, and strip a trailing `.md`.
+
+Not supported, each because the corpus contains none: alias resolution via frontmatter `aliases:`, markdown-style `[text](note.md)` links, and targets containing nested brackets. If a future corpus needs them, measure first.
+
+### Resolution
+
+1. If the target contained a `/`, try the full relative path against the corpus first.
+2. Otherwise, and as fallback, match the final segment against note basenames, **case-sensitively**.
+3. More than one candidate is **ambiguous**: resolve to all of them and count it.
+4. No candidate is **unresolved**: record it and carry on. This is normal, not an error.
+
+### Where links live
+
+| Source | Stored on | Why |
+|---|---|---|
+| A chunk's own text | That chunk's `wikilinks` | It is that passage's reference |
+| The note's frontmatter | **The note, once** | 22.6% of the graph; replicating it per chunk double-counts on aggregation. ADR 0005. |
+
+Each entry carries whether it was an **embed** (`![[...]]`) or a plain link. An embed whose target has a non-markdown extension - image, audio, pdf - is **not an edge** and is not recorded; 24 of 33 embeds in the target corpus are attachments.
+
+Anything consuming the graph takes the union of a note's frontmatter links and its chunks' links.
+
+### Validation
+
+The implementation is checked against ground truth exported from Obsidian's own `app.metadataCache.resolvedLinks`, which is the authoritative resolver. A one-off export is enough; this is a correctness check, not a runtime dependency.
+
+Expect disagreements in both directions and treat each as a finding rather than a bug to suppress: Obsidian resolves ambiguity by proximity where this does not, and Obsidian counts frontmatter links that an earlier version of these rules would have dropped.
 
 ## Retrieval
 
@@ -306,6 +347,19 @@ This output deserves naming as a deliverable in its own right, because it is lik
 
 Record it for the vault, not only for the fixture. The truncation count in particular is the input to the chunk-ceiling decision and the evidence behind it.
 
+### Deferred: contextual metadata in the embedded text
+
+Only `chunk.text` is embedded, so a chunk carries no signal about which note or area it came from. A known technique prepends that context before embedding:
+
+```
+Area: Career. Note: Resume Workshop - Panel Results. Section: Summary rewrites.
+<chunk text>
+```
+
+This is plausibly a large win on a corpus where a passage's meaning depends on the note it sits in, and it is **deliberately not done in Phase 1**: it changes every vector in the index, so doing it now would mean the baseline and the experiment move together and neither is measurable.
+
+Recorded as a Phase 3 candidate alongside graph expansion and cross-encoder re-ranking. It is testable against the same eval, which is the only reason to defer it rather than decide it.
+
 ### What this phase deliberately cannot tell you
 
 The eval measures retrieval against questions chosen because their answers exist. It says nothing about whether the tool is **useful**, since no curated set can - organic questions are not selected for being answerable.
@@ -399,6 +453,19 @@ Named here so the spec, not the implementer's mood, decides what is covered.
 - `breadcrumb` is correct for a three-level-deep heading
 - `char_start`/`char_end` slice the source body back to the chunk text exactly
 - Frontmatter keys never appear in any chunk's text
+
+**Wikilinks**
+
+- A wikilink inside a fenced code block is not extracted
+- A wikilink inside an inline code span is not extracted
+- `[[note|alias]]` and `[[note#heading]]` both yield `note`
+- A trailing `.md` and surrounding whitespace are stripped
+- A path-form target resolves by full path when it exists, by basename otherwise
+- Resolution is case-sensitive: `[[glossary]]` does not match `Glossary.md`
+- An ambiguous target resolves to every candidate and is counted as ambiguous
+- An unresolved target is recorded and does not raise
+- `![[note]]` is an edge and is flagged as an embed; `![[image.png]]` is not an edge
+- Frontmatter links appear once per note, **not** once per chunk
 
 **Exclusions**
 
