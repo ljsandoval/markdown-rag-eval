@@ -72,8 +72,21 @@ class Chunk(BaseModel):
     char_end: int
     tags: list[str]         # from frontmatter
     area: str | None        # from frontmatter
-    wikilinks: list[str]    # outbound [[targets]] found in this chunk's text
+    wikilinks: list[WikiLink]   # found in THIS chunk's text only
     char_count: int
+
+class WikiLink(BaseModel):
+    target: str               # normalized: final path segment, no .md, trimmed
+    raw: str                  # as written, for failure analysis
+    is_embed: bool            # True for ![[...]]
+    resolved: list[str]       # note_paths it resolves to. [] = unresolved, 2+ = ambiguous
+
+class Note(BaseModel):
+    note_path: str
+    tags: list[str]
+    area: str | None
+    frontmatter_wikilinks: list[WikiLink]   # stored ONCE here, never on chunks
+    chunk_count: int
 
 class EvalQuestion(BaseModel):
     id: str                   # stable, e.g. "q007"
@@ -86,6 +99,10 @@ class EvalQuestion(BaseModel):
 ```
 
 `char_start`/`char_end` exist so a retrieved chunk can be traced back to its exact source span. That is what makes a failure analysis possible rather than speculative.
+
+`WikiLink.resolved` carries the resolution outcome in one field rather than three: empty means unresolved, one entry is the normal case, two or more is ambiguous. So "count the ambiguous links" is a filter rather than a separate structure, and nothing has to be kept in sync.
+
+**`Note` is where frontmatter links live**, per ADR 0005. A chunk's `wikilinks` holds only what is in that chunk's own text. Anything consuming the graph takes the union of a note's `frontmatter_wikilinks` and its chunks' `wikilinks` - and counts the former **once**, which is the whole reason the field is here and not on the chunk.
 
 ## Corpus contract
 
@@ -170,6 +187,8 @@ So the selection criterion is **not** "which scores highest." It is:
 Ranked, with the first as a gate and the rest as tiebreakers in order:
 
 1. **Clears the bar**: note-level recall@5 materially above the BM25 baseline. If no candidate does, that is the finding and it goes in the failure analysis rather than being tuned away.
+
+   **"Materially above" is deliberately not a number here.** Any threshold invented before the intervals are visible would be as arbitrary as deciding by mood, and at 25 questions a gap has to be large to mean anything at all. So the requirement is procedural instead, and it is checkable: **the threshold is fixed, in writing, with the measured intervals in front of you, and the reasoning is recorded in the results file before any candidate is declared a pass.** Choosing it after seeing which candidate it would favour is the specific failure this guards against.
 2. **No prefix requirement**, or one that is impossible to forget because it lives in the model config rather than in call sites.
 3. **Shorter index build time.**
 4. **Smaller on disk.**
@@ -335,7 +354,7 @@ The fixture corpus takes up most of this document because it had to be specified
 
 | | Fixture corpus | Private vault |
 |---|---|---|
-| Size | 14 notes | ~698 notes, ~600k words |
+| Size | 14 notes | **698 on disk, 655 after exclusions**, ~600k words |
 | Eval set | 8 to 10 questions | **25 questions, 10 held out** |
 | Job | Prove the code runs; let anyone reproduce the demo | **Produce the numbers that get discussed** |
 | Reproducible by others | Yes | No, and labelled as such |
@@ -347,7 +366,7 @@ A number measured on notes and questions written by the same person is close to 
 
 The index build over the vault produces a set of numbers that are **not an eval** and cost no labeling effort: chunk count, the length histogram, how many chunks exceed `max_seq_length`, token totals, and build time.
 
-This output deserves naming as a deliverable in its own right, because it is likely the most useful thing the phase produces for discussion. A statement like *"600,000 words across 698 notes became roughly 6,000 chunks, and some fraction of them exceed the embedding model's context window and are silently truncated"* is a concrete defect found by measurement on a real corpus. It needs no ground truth, so it cannot be argued with on eval-design grounds, and it reads as engineering rather than as a score.
+This output deserves naming as a deliverable in its own right, because it is likely the most useful thing the phase produces for discussion. A statement like *"600,000 words across 655 indexed notes became roughly 6,000 chunks, and some fraction of them exceed the embedding model's context window and are silently truncated"* is a concrete defect found by measurement on a real corpus. It needs no ground truth, so it cannot be argued with on eval-design grounds, and it reads as engineering rather than as a score.
 
 Record it for the vault, not only for the fixture. The truncation count in particular is the input to the chunk-ceiling decision and the evidence behind it.
 
@@ -380,11 +399,19 @@ One JSON file per run, written to a path the caller names.
     "timestamp": "2026-10-08T19:04:11Z",
     "code_commit": "a1b2c3d",
     "corpus_path": "fixtures/corpus",
-    "corpus_file_count": 14,
+    "files_discovered": 14,
+    "files_indexed": 12,
     "chunk_count": 96,
     "exclude_patterns": ["people/"],
     "exclude_source": "fixtures/corpus/.mdragignore",
-    "embedding_model": "<model id>",
+    "model_id": "<model id>",
+    "model_revision": "<pinned commit hash>",
+    "dimensions": 384,
+    "max_seq_length": 512,
+    "normalized": true,
+    "query_prefix": "",
+    "passage_prefix": "",
+    "chunks_over_max_seq_length": 3,
     "system": "embedding",
     "k_values": [1, 3, 5, 10],
     "questions_total": 10,
@@ -403,7 +430,9 @@ One JSON file per run, written to a path the caller names.
 
 `per_question` is the point of the file. An aggregate alone cannot be argued with; a reader has to be able to open the failures and see what came back instead. Record the top 10 retrieved entries per question regardless of `k`.
 
-Recording `code_commit` and `embedding_model` is what makes a number re-derivable three months later.
+**Two file counts, not one.** `files_discovered` is what was on disk; `files_indexed` is what survived the exclusions and is **the denominator for every number in the file**. One count cannot carry both, and the ambiguity has already caused confusion twice - once over the fixture-integrity test and once over this example, which previously showed 14 alongside an exclusion that removes two.
+
+Recording `code_commit` and the full model provenance is what makes a number re-derivable three months later. The provenance fields here are exactly criterion 8a's list; this example is complete rather than abridged, because an abridged contract example is a trap.
 
 ## CLI
 
@@ -412,6 +441,8 @@ uv run mdrag index --corpus PATH [--exclude PREFIX ...] [--model ID] --out DIR
 uv run mdrag eval  --index DIR --questions PATH --system embedding|bm25|both
                    [--k 1,3,5,10] [--holdout] --out FILE
 ```
+
+Argument parsing is stdlib **`argparse`**. No CLI framework: two commands with a handful of flags do not need one, and it keeps a public repo's dependency list to what the work actually requires.
 
 `index` prints the chunk count and the length histogram. `eval` prints the aggregate table and writes the JSON. Both are quiet on success beyond that - this is a measurement tool, not a progress bar.
 
@@ -430,7 +461,7 @@ Phase 1 is done when every line below is true. Each is checkable by someone othe
 | 7 | `per_question` records the top 10 retrieved entries for every question |
 | 8 | The index build emits a chunk-length histogram **and the count of chunks exceeding the model's max sequence length** |
 | 8a | Index metadata and every results file record `model_id`, `model_revision`, `dimensions`, `max_seq_length`, `normalized`, and both prefixes |
-| 8b | Characterization is recorded **for the vault**: note count, chunk count, length histogram, chunks over `max_seq_length`, token total, build time |
+| 8b | Characterization is recorded **for the vault**: **both** note counts (discovered and indexed), chunk count, length histogram, chunks over `max_seq_length`, token total, build time |
 | 8c | Every results file records `exclude_patterns` and `exclude_source`, so a run that excluded nothing is visible in its own output |
 | 9 | The test inventory below passes; `ruff` and `mypy` are clean |
 | 10 | A written failure analysis exists, naming the mechanism behind each miss |
