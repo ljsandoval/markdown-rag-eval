@@ -1,0 +1,5 @@
+# Exclusions for this corpus. One pattern per line; trailing / means a directory.
+# No negation: an exclusion that can be undone later is how a private note gets
+# indexed by accident. See docs/specs/phase-1-retrieval.md, Exclusions.
+
+people/

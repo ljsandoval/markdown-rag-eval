@@ -39,7 +39,7 @@ Each row is a case something in the pipeline has to handle. The named test is th
 | Content before the first heading | `notes/weekly-sync-2027-03-18.md` | Produces the `heading = None` preamble chunk. |
 | Nine very short sections, one or two lines each | `reference/glossary.md` | The chunk-size **floor** case. Thin chunks carry little signal and rank almost randomly. |
 | One 2,200-character section, roughly 550 tokens | `incidents/collector-outage-2027-03-14.md` | The chunk-size **ceiling** case. It exceeds a 512-token model's max sequence length, so it is the fixture that makes silent truncation visible. |
-| A note excluded by path | `people/` | Exercises the exclusion mechanism publicly, without needing the private corpus's journal and client-work exclusions. |
+| A note excluded by path | `people/`, via `corpus/.mdragignore` | Exercises the exclusion mechanism publicly, without needing the private corpus's rules. The ignore file is part of the fixture: exclusions are declared by the corpus, not by the tool. |
 
 ## Question kinds the corpus supports
 

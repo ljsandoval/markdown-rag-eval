@@ -94,14 +94,28 @@ A corpus is **a directory containing `.md` files**, nothing more. No Obsidian as
 
 ### Exclusions
 
-A list of path prefixes, corpus-relative, supplied by config and defaulting to empty.
+**Exclusions are declared by the corpus, in a `.mdragignore` file at the corpus root.** Not by tool configuration and not hardcoded anywhere.
 
-| Corpus | Excluded |
-|---|---|
-| Fixture | `people/` - exercises the mechanism publicly |
-| Private vault | `00-Raw/journal/`, `03-Resources/GAS/`, `01-Projects/GAS`, `02-Areas/People/` |
+This follows from ADR 0003: which notes must not be indexed is a fact about a particular corpus, so a tool carrying that list would know something about a specific private collection and stop being corpus-agnostic. The corpus brings its own rules; the tool reads them.
 
-A prefix match on the corpus-relative path. Exclusion happens **at discovery**, so an excluded file is never read, never embedded, and cannot reach a results file. This is a test, not a convention - see the test inventory.
+**Format**, deliberately smaller than gitignore's:
+
+- One pattern per line, matched against the corpus-relative POSIX path.
+- A trailing `/` means a directory and everything under it. Otherwise the pattern is matched as a glob, with `*` not crossing `/` and `**` crossing any number of segments.
+- Blank lines ignored. A line beginning with `#` is a comment.
+- **No negation, no re-inclusion.** An exclusion that can be undone later in the file is how a private note gets indexed by accident.
+- A missing `.mdragignore` means no exclusions, which is correct for a corpus that has nothing to hide.
+
+`--exclude PATTERN` on the command line **adds to** the file rather than replacing it, for ad-hoc runs. There is no flag to disable the file.
+
+The fixture corpus ships a `.mdragignore` containing `people/`, which is how the mechanism is exercised publicly without needing the private corpus's rules.
+
+**Exclusion happens at discovery**, so an excluded file is never opened, never embedded, and cannot reach a results file. This is enforced by test, not by convention - see the test inventory.
+
+> [!warning] A missing ignore file is silent, and that is the one real risk here
+> If `.mdragignore` is absent, renamed, or has a typo'd pattern, the run proceeds and indexes everything. Nothing errors, because an empty exclusion list is legitimate.
+>
+> The mitigation is **visibility rather than a guess about intent**: every run records the patterns it actually applied and the file it read them from, in the results `run` block. A run that excluded nothing is then obvious in its own output, and a published number can be checked against what it indexed. Do not try to infer that a corpus "should" have exclusions - that is corpus knowledge, and it belongs in the corpus.
 
 ## Chunking rules
 
@@ -308,7 +322,8 @@ One JSON file per run, written to a path the caller names.
     "corpus_path": "fixtures/corpus",
     "corpus_file_count": 14,
     "chunk_count": 96,
-    "excluded_prefixes": ["people/"],
+    "exclude_patterns": ["people/"],
+    "exclude_source": "fixtures/corpus/.mdragignore",
     "embedding_model": "<model id>",
     "system": "embedding",
     "k_values": [1, 3, 5, 10],
@@ -356,8 +371,10 @@ Phase 1 is done when every line below is true. Each is checkable by someone othe
 | 8 | The index build emits a chunk-length histogram **and the count of chunks exceeding the model's max sequence length** |
 | 8a | Index metadata and every results file record `model_id`, `model_revision`, `dimensions`, `max_seq_length`, `normalized`, and both prefixes |
 | 8b | Characterization is recorded **for the vault**: note count, chunk count, length histogram, chunks over `max_seq_length`, token total, build time |
+| 8c | Every results file records `exclude_patterns` and `exclude_source`, so a run that excluded nothing is visible in its own output |
 | 9 | The test inventory below passes; `ruff` and `mypy` are clean |
 | 10 | A written failure analysis exists, naming the mechanism behind each miss |
+| 11 | `README.md` exists at the repo root: what this is, its status, how to run it against the fixture corpus, and that reported numbers come from a private corpus |
 
 Criterion 10 is the one that converts a number into evidence of engineering, and it is the easiest to skip. It is not optional.
 
@@ -383,8 +400,12 @@ Named here so the spec, not the implementer's mood, decides what is covered.
 
 **Exclusions**
 
-- With `people/` excluded, no chunk has a `note_path` under `people/`
+- Patterns parse: directory form, glob form, comments, blank lines
+- A line attempting negation is rejected rather than silently ignored
+- With the fixture's `.mdragignore` in place, no chunk has a `note_path` under `people/`
 - The excluded files are never opened (assert via a read counter or a monkeypatched loader)
+- A corpus with no `.mdragignore` loads with zero exclusions and does not raise
+- `--exclude` adds to the file's patterns rather than replacing them
 
 **Retrieval**
 
