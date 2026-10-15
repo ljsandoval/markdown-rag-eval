@@ -37,6 +37,7 @@ Build and measure **retrieval only**. No model calls, no generation, no answers.
 src/mdrag/
     __init__.py
     corpus.py      # discover and load markdown files, parse frontmatter
+    wikilinks.py   # extract and resolve wikilinks, for any text
     chunker.py     # heading-aware splitting
     embed.py       # model load, prefix handling, batch encode, L2 normalize
     index.py       # build and load the on-disk array
@@ -45,13 +46,18 @@ src/mdrag/
     evalset.py     # load and validate the eval set
     metrics.py     # recall, rank, MRR
     cli.py         # the two commands
-examples/corpus/   # the fixture corpus, shipped and public
+examples/corpus/   # the example corpus, shipped and public (ADR 0007)
+tests/fixtures/    # test inputs, minimal and artificial (ADR 0007)
 eval/
-    fixture.yaml   # eval set for the fixture corpus, public
+    fixture.yaml   # eval set for the example corpus, public
     private/       # vault eval set, gitignored, lives in the private mirror
 ```
 
 One module per concern, each independently testable. `retrieve.py` must not import `chunker.py` - it consumes an index, not a corpus.
+
+**`wikilinks.py` is extraction's only home, and both callers use it.** `corpus.py` applies it to frontmatter values and `chunker.py` applies it to chunk text; the rules are identical and live in one section, so they live in one module. Splitting them because one caller is implemented before the other would put the same ten rules in two places, which is the failure this layout exists to avoid.
+
+Its signature takes text and returns links, so it knows nothing about corpora or chunks: `extract(text: str) -> list[WikiLink]`, plus a resolver that takes a corpus index of note paths.
 
 **Prerequisite:** `README.md` must exist at the repo root before `uv sync` will work at all. `pyproject.toml` names it in the `readme` field, and hatchling refuses to build the package without the file existing - this is a build prerequisite, not a documentation nicety.
 
@@ -148,7 +154,7 @@ Split at ATX headings. The rules exist because each one has a failure case in th
 4. **Content before the first heading becomes one chunk** with `heading = None`.
 5. **Tables and Mermaid blocks are never split**, which follows from rules 2 and 3 - neither contains a heading line - but the fixture asserts it directly because it is the rule most likely to break under a future refactor.
 6. **No floor, no ceiling in this phase.** Chunks are emitted at whatever size the headings imply. Instead, the index build **writes a chunk-length histogram**, which is the input to the floor/ceiling decision. Do not guess those bounds before the histogram exists. **The ceiling is not purely a tuning knob.** Small embedding models cap at 256 or 512 tokens and **silently truncate** past it, so a long chunk produces an ordinary-looking vector representing only its opening. The ceiling therefore has to be derived from the chosen model's max sequence length. The index build **must log how many chunks exceed it**, which makes the truncation visible instead of invisible. See the private reference notes on embeddings.
-7. `wikilinks` are extracted per chunk. The rules are their own section below, because there are more of them than a chunking rule should carry.
+7. `wikilinks` are extracted per chunk, by `wikilinks.py`. The rules are their own section below, because there are more of them than a chunking rule should carry, and because `corpus.py` needs the same ones for frontmatter.
 
 ## Embedding model
 
@@ -250,6 +256,8 @@ Not supported, each because the corpus contains none: alias resolution via front
 4. No candidate is **unresolved**: record it and carry on. This is normal, not an error.
 
 ### Where links live
+
+Extraction for both rows is `wikilinks.py`. `corpus.py` calls it on frontmatter values and owns the `Note`; `chunker.py` calls it on chunk text and owns the `Chunk`.
 
 | Source | Stored on | Why |
 |---|---|---|
