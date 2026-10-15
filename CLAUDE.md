@@ -14,6 +14,17 @@ One GitHub issue per unit of work. **Your brief is the issue plus the spec secti
 
 Issues reference spec sections and never restate them. **If an issue and the spec disagree, the spec wins** — and say so in a comment on the issue.
 
+## Invocable procedures
+
+Two skills in `.claude/skills/`, each pinned to its own model. They hold **procedure**; this file holds **conventions**; neither restates the other.
+
+| Skill | Model | Takes | Does |
+|---|---|---|---|
+| `review-brief` | opus | issue number, label, or nothing | Checks the spec and issues for gaps before implementation. Fixes mechanical defects, escalates anything needing a decision. |
+| `implement-issue` | sonnet | issue number or label | Works one issue, or every unblocked issue with that label. |
+
+Run `review-brief` before implementing against a contract that has not been reviewed since it changed.
+
 ## Rules
 
 **The spec is amended by commit.** If implementing something proves a statement in the spec wrong, change the spec in the *same commit* as the code that proved it, and say why in an issue comment. Never work around a wrong spec silently — a spec that disagrees with the code is the failure this layout exists to prevent.
