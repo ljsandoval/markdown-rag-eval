@@ -17,6 +17,8 @@ keywords = ["rag", "retrieval", "embeddings", "evaluation", "markdown"]
 dependencies = [
     "python-frontmatter>=1.1.0",
     "pydantic>=2.5.0",
+    "numpy>=1.26",
+    "sentence-transformers>=3.0",
 ]
 
 [dependency-groups]

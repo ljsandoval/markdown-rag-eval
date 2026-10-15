@@ -139,6 +139,8 @@ Split at ATX headings. The rules exist because each one has a failure case in th
 
 `sentence-transformers`, running locally on CPU. No hosted embedding API: Anthropic serves no embeddings endpoint, and any other vendor means sending a private corpus to a third party, which the two-corpus design exists to avoid. Reasoning in the private reference notes on embeddings.
 
+`sentence-transformers` and `numpy` are declared in `[project.dependencies]` - required, not behind an extra. The install is roughly 800 MB on macOS with no CUDA packages; a Linux clone additionally pulls CUDA this project never uses. Measurements and the alternatives rejected are in ADR 0006. **A clean checkout must keep working without flags**, which is what criteria 4 and 11 promise.
+
 Three hard gates. A model failing any of them is not a candidate:
 
 - Runs locally, CPU-only, no network at query time after the first download.
