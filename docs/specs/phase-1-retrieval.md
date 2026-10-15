@@ -55,6 +55,8 @@ One module per concern, each independently testable. `retrieve.py` must not impo
 
 **Prerequisite:** `README.md` must exist at the repo root before `uv sync` will work at all. `pyproject.toml` names it in the `readme` field, and hatchling refuses to build the package without the file existing - this is a build prerequisite, not a documentation nicety.
 
+**Prerequisite:** the `uv run mdrag ...` invocations in the CLI section require a console script named `mdrag` declared in `pyproject.toml` under `[project.scripts]`, pointing into `mdrag/cli.py`. Without it `uv run mdrag` fails with `Failed to spawn: mdrag` and acceptance criterion 4 cannot pass, however complete `cli.py` is.
+
 ## Data shapes
 
 Pydantic models, so validation errors surface at the boundary rather than as a `KeyError` three calls later.
@@ -443,6 +445,7 @@ Named here so the spec, not the implementer's mood, decides what is covered.
 - Expected file count (raw on-disk, 14) and every file parses
 - Every `[[wikilink]]` in the corpus resolves to a file that exists, using the rules in "Wikilink extraction and resolution". Note that this assertion is **specific to the fixture**: an unresolved link is normal in a real corpus and is never an error there (ADR 0005)
 - Every note has a frontmatter block with `tags`
+- No note links to itself
 
 **Chunker**
 
@@ -450,7 +453,7 @@ Named here so the spec, not the implementer's mood, decides what is covered.
 - A markdown table emerges in exactly one chunk
 - A Mermaid fence emerges in exactly one chunk
 - Content before the first heading becomes a `heading = None` chunk
-- `breadcrumb` is correct for a three-level-deep heading
+- `breadcrumb` is correct for a four-level-deep heading, which has three enclosing headings
 - `char_start`/`char_end` slice the source body back to the chunk text exactly
 - Frontmatter keys never appear in any chunk's text
 
