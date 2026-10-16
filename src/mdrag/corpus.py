@@ -27,7 +27,6 @@ class Note(BaseModel):
     tags: list[str]
     area: str | None
     frontmatter_wikilinks: list[WikiLink]  # stored ONCE here, never on chunks
-    chunk_count: int
 
 
 @dataclass(frozen=True)
@@ -137,7 +136,6 @@ def load_note(corpus_root: Path, note_path: str) -> Note:
         tags=tags,
         area=area,
         frontmatter_wikilinks=frontmatter_links,
-        chunk_count=0,
     )
 
 

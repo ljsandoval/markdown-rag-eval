@@ -6,7 +6,7 @@ purpose-built per ADR 0007; the example corpus exercises almost none of these
 cases and is not used for them.
 """
 
-from mdrag.wikilinks import extract, resolve
+from mdrag.wikilinks import WikiLink, extract, resolve
 
 
 def test_wikilink_inside_fenced_code_block_is_not_extracted() -> None:
@@ -77,3 +77,18 @@ def test_embed_of_an_attachment_is_not_an_edge() -> None:
 def test_plain_link_is_not_flagged_as_embed() -> None:
     links = extract("[[glossary]]")
     assert links[0].is_embed is False
+
+
+def test_link_path_keeps_the_path_form_that_target_reduces_away() -> None:
+    links = extract("[[people/jun-okafor.md]]")
+    assert links[0].link_path == "people/jun-okafor"
+    assert links[0].target == "jun-okafor"
+
+
+def test_resolve_reads_the_model_rather_than_reparsing_raw() -> None:
+    """A link built directly must resolve: resolution consumes fields, not `raw`."""
+    link = WikiLink(
+        link_path="people/jun-okafor", target="jun-okafor", raw="", is_embed=False, resolved=[]
+    )
+    resolved = resolve([link], ["people/jun-okafor.md", "other/jun-okafor.md"])
+    assert resolved[0].resolved == ["people/jun-okafor.md"]

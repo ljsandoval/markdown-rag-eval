@@ -18,8 +18,9 @@ _INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 
 
 class WikiLink(BaseModel):
-    target: str  # normalized: final path segment, no .md, trimmed
-    raw: str  # as written, for failure analysis
+    link_path: str  # post-split, trimmed, .md stripped; full form, separators kept
+    target: str  # link_path's final segment: what a basename match uses
+    raw: str  # as written, for failure analysis only
     is_embed: bool  # True for ![[...]]
     resolved: list[str]  # note_paths it resolves to. [] = unresolved, 2+ = ambiguous
 
@@ -74,14 +75,21 @@ def extract(text: str) -> list[WikiLink]:
             continue
         embed_marker, inner = m.group(1), m.group(2)
         is_embed = embed_marker == "!"
-        link_path = _split_before_alias_and_heading(inner).strip()
-        final_segment = link_path.rsplit("/", 1)[-1]
+        raw_path = _split_before_alias_and_heading(inner).strip()
         if is_embed:
-            suffix = PurePosixPath(final_segment).suffix
+            suffix = PurePosixPath(raw_path.rsplit("/", 1)[-1]).suffix
             if suffix and suffix != ".md":
                 continue  # attachment embed: not an edge, not recorded
-        target = final_segment[:-3] if final_segment.endswith(".md") else final_segment
-        links.append(WikiLink(target=target, raw=inner, is_embed=is_embed, resolved=[]))
+        link_path = raw_path[:-3] if raw_path.endswith(".md") else raw_path
+        links.append(
+            WikiLink(
+                link_path=link_path,
+                target=link_path.rsplit("/", 1)[-1],
+                raw=inner,
+                is_embed=is_embed,
+                resolved=[],
+            )
+        )
     return links
 
 
@@ -97,13 +105,11 @@ def resolve(links: Sequence[WikiLink], note_paths: Sequence[str]) -> list[WikiLi
 
     resolved_links: list[WikiLink] = []
     for link in links:
-        link_path = _split_before_alias_and_heading(link.raw).strip()
-        stem_path = link_path[:-3] if link_path.endswith(".md") else link_path
-        if "/" in link_path:
-            candidates = full_index.get(stem_path)
+        if "/" in link.link_path:
+            candidates = full_index.get(link.link_path)
             if not candidates:
-                candidates = basename_index.get(stem_path.rsplit("/", 1)[-1], [])
+                candidates = basename_index.get(link.target, [])
         else:
-            candidates = basename_index.get(stem_path, [])
+            candidates = basename_index.get(link.target, [])
         resolved_links.append(link.model_copy(update={"resolved": sorted(candidates or [])}))
     return resolved_links

@@ -82,8 +82,9 @@ class Chunk(BaseModel):
     char_count: int
 
 class WikiLink(BaseModel):
-    target: str               # normalized: final path segment, no .md, trimmed
-    raw: str                  # as written, for failure analysis
+    link_path: str            # post-split, trimmed, .md stripped; full form, separators kept
+    target: str               # link_path's final segment: what a basename match uses
+    raw: str                  # as written, for failure analysis only
     is_embed: bool            # True for ![[...]]
     resolved: list[str]       # note_paths it resolves to. [] = unresolved, 2+ = ambiguous
 
@@ -92,7 +93,6 @@ class Note(BaseModel):
     tags: list[str]
     area: str | None
     frontmatter_wikilinks: list[WikiLink]   # stored ONCE here, never on chunks
-    chunk_count: int
 
 class EvalQuestion(BaseModel):
     id: str                   # stable, e.g. "q007"
@@ -107,6 +107,10 @@ class EvalQuestion(BaseModel):
 `char_start`/`char_end` exist so a retrieved chunk can be traced back to its exact source span. That is what makes a failure analysis possible rather than speculative.
 
 `WikiLink.resolved` carries the resolution outcome in one field rather than three: empty means unresolved, one entry is the normal case, two or more is ambiguous. So "count the ambiguous links" is a filter rather than a separate structure, and nothing has to be kept in sync.
+
+**`WikiLink` carries both `link_path` and `target` because resolution needs both.** The rule is full-path-first then basename-fallback, so a resolver has to know whether the link was written as a path, and reducing a link to its final segment destroys exactly that. Carrying only the reduced form forces the resolver to re-parse `raw` and reimplement the alias and heading split, which puts the parse rule in two places and makes a future addition - block references, say - able to drift silently into wrong resolution rather than an error. With both fields present, `raw` means only what its comment says.
+
+**Per-note chunk counts are derived, not stored.** `Note` is built by the loader, which parses one file's frontmatter and never chunks anything, so it cannot know the number; a field for it would be a placeholder that no validation can distinguish from a note that genuinely produced no chunks. Anything wanting the distribution counts over the chunk list by `note_path`, which is what the index build already does for the length histogram. The `chunk_count` in the index manifest is the corpus-wide total and is unrelated.
 
 **`Note` is where frontmatter links live**, per ADR 0005. A chunk's `wikilinks` holds only what is in that chunk's own text. Anything consuming the graph takes the union of a note's `frontmatter_wikilinks` and its chunks' `wikilinks` - and counts the former **once**, which is the whole reason the field is here and not on the chunk.
 
@@ -244,14 +248,14 @@ Skip, in this order, before matching:
 1. **Fenced code blocks.** Reuse the chunker's fence state rather than re-deriving it.
 2. **Inline code spans** - text between single backticks. **108 wikilinks in the target corpus sit inside these**, more than the 49 inside fenced blocks, so missing this is the larger error.
 
-Then normalize the target: strip surrounding whitespace, take the final `/`-separated segment, and strip a trailing `.md`.
+Then normalize in two stages, because resolution consumes both. Strip surrounding whitespace and a trailing `.md` to get `link_path`, which keeps any `/` separators intact; `target` is then `link_path`'s final `/`-separated segment. Resolution reads these two fields and **never re-parses `raw`**.
 
 Not supported, each because the corpus contains none: alias resolution via frontmatter `aliases:`, markdown-style `[text](note.md)` links, and targets containing nested brackets. If a future corpus needs them, measure first.
 
 ### Resolution
 
-1. If the target contained a `/`, try the full relative path against the corpus first.
-2. Otherwise, and as fallback, match the final segment against note basenames, **case-sensitively**.
+1. If `link_path` contains a `/`, try it as a full relative path against the corpus first.
+2. Otherwise, and as fallback, match `target` against note basenames, **case-sensitively**.
 3. More than one candidate is **ambiguous**: resolve to all of them and count it.
 4. No candidate is **unresolved**: record it and carry on. This is normal, not an error.
 
@@ -502,6 +506,8 @@ Named here so the spec, not the implementer's mood, decides what is covered.
 - A wikilink inside an inline code span is not extracted
 - `[[note|alias]]` and `[[note#heading]]` both yield `note`
 - A trailing `.md` and surrounding whitespace are stripped
+- `link_path` keeps the path form that `target` reduces away
+- A `WikiLink` constructed directly, with an empty `raw`, still resolves - resolution consumes fields, never `raw`
 - A path-form target resolves by full path when it exists, by basename otherwise
 - Resolution is case-sensitive: `[[glossary]]` does not match `Glossary.md`
 - An ambiguous target resolves to every candidate and is counted as ambiguous
