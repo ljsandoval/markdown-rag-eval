@@ -23,10 +23,12 @@ Two things the comparison must do, both learned the hard way:
   note is resolved by Obsidian and then dropped by the export's target filter,
   so it is in neither map. Counted separately here rather than silently lost.
 
-TODO, once #4 lands: body links come from the chunker's output rather than from
-`_parse` below, and `_parse` is replaced by the shared frontmatter-stripping
-function in `corpus.py`. Both are specified but unbuilt, so this follows the
-spec as closely as currently possible and flags the unification forward.
+TODO, in two steps, in this order. **#17** gives frontmatter stripping the one
+home the Corpus contract specifies, and `_parse` below is replaced by that
+function. **#4** then makes body links come from the chunker's output rather
+than from a local `extract` call. Both are specified but unbuilt, so this
+follows the spec as closely as currently possible and flags the unification
+forward.
 """
 
 from __future__ import annotations
