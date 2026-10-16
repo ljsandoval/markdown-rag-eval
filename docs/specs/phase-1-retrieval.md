@@ -88,6 +88,7 @@ class WikiLink(BaseModel):
     raw: str                  # as written, for failure analysis only
     is_embed: bool            # True for ![[...]]
     resolved: list[str]       # note_paths it resolves to. [] = unresolved, 2+ = ambiguous
+    resolved_by: Literal["path", "basename", "unresolved"]
 
 class Note(BaseModel):
     note_path: str
@@ -121,6 +122,8 @@ A corpus is **a directory containing `.md` files**, nothing more. No Obsidian as
 
 - Discover `**/*.md` under the corpus root, excluding configured paths.
 - Frontmatter parsed with `python-frontmatter`. **A missing or malformed frontmatter block is not an error** - tags and area become empty. A corpus is allowed to be plain markdown.
+- **A malformed block is still stripped from the body.** Unparseable YAML means the metadata is absent; it does not mean the delimited block becomes prose. Handing the raw text through puts `tags:` and every frontmatter wikilink into the body, which silently violates the chunker rule that frontmatter keys never appear in a chunk and inflates the link graph. Measured against the target corpus: 19 notes have invalid YAML, and treating their blocks as prose produced 23 links Obsidian's own resolver does not see.
+- **Stripping the block has exactly one home.** The loader and the chunker both need the post-frontmatter body, so the parse is a shared function rather than something each caller redoes - the same argument that makes `wikilinks.py` extraction's only home.
 - `note_path` is always relative to the corpus root with forward slashes, on every platform.
 - Files are read as UTF-8; a decode failure names the file and aborts the run rather than skipping silently.
 
@@ -251,6 +254,8 @@ Skip, in this order, before matching:
 
 Then normalize in two stages, because resolution consumes both. Strip surrounding whitespace and a trailing `.md` to get `link_path`, which keeps any `/` separators intact; `target` is then `link_path`'s final `/`-separated segment. Resolution reads these two fields and **never re-parses `raw`**.
 
+**An empty `link_path` after the split is a same-note reference and is not an edge.** `[[#Some Heading]]` names a section of the containing note, so Obsidian resolves it to that note; recording it would add a self-edge to every note that links its own sections, which distorts anything built on the graph later. It is dropped the way an attachment embed is - not recorded, not an error.
+
 Not supported, each because the corpus contains none: alias resolution via frontmatter `aliases:`, markdown-style `[text](note.md)` links, and targets containing nested brackets. If a future corpus needs them, measure first.
 
 ### Resolution
@@ -259,6 +264,10 @@ Not supported, each because the corpus contains none: alias resolution via front
 2. Otherwise, and as fallback, match `target` against note basenames, **case-sensitively**.
 3. More than one candidate is **ambiguous**: resolve to all of them and count it.
 4. No candidate is **unresolved**: record it and carry on. This is normal, not an error.
+
+**How a link resolved is recorded, not just whether.** `resolved_by` carries `path`, `basename` or `unresolved`, and `resolved_by == "unresolved"` holds exactly when `resolved` is empty.
+
+The reason is that step 2's fallback is **deliberately more forgiving than Obsidian**, which stops when a path-form link misses. The fallback is right for retrieval - it finds the note a reader meant - but it also silently rescues links whose paths went stale, so a corpus can rot without any number moving. Recording the provenance keeps both: the graph stays dense, and a basename-fallback count in the characterization output says how much rescuing was needed. One link in the target corpus resolves this way, from a path form left behind by a folder rename.
 
 ### Where links live
 
@@ -269,6 +278,8 @@ Extraction for both rows is `wikilinks.py`. `corpus.py` calls it on frontmatter 
 | A chunk's own text | That chunk's `wikilinks` | It is that passage's reference |
 | The note's frontmatter | **The note, once** | 22.6% of the graph; replicating it per chunk double-counts on aggregation. ADR 0005. |
 
+**A frontmatter link counts only when the property value is a link.** That means the trimmed value is exactly one wikilink, or an item of a list of them - `Area: "[[Career]]"` and a `Links:` list both count. A wikilink embedded mid-sentence in a free-text property does not: `next_action: Compare against [[Other Note]] and pick one` is prose that mentions a note, not a declared relation, which is how Obsidian treats it too. Five notes in the target corpus have such embedded links.
+
 Each entry carries whether it was an **embed** (`![[...]]`) or a plain link. An embed whose target has a non-markdown extension - image, audio, pdf - is **not an edge** and is not recorded; 24 of 33 embeds in the target corpus are attachments.
 
 Anything consuming the graph takes the union of a note's frontmatter links and its chunks' links.
@@ -277,7 +288,16 @@ Anything consuming the graph takes the union of a note's frontmatter links and i
 
 The implementation is checked against ground truth exported from Obsidian's own `app.metadataCache.resolvedLinks`, which is the authoritative resolver. A one-off export is enough; this is a correctness check, not a runtime dependency.
 
-Expect disagreements in both directions and treat each as a finding rather than a bug to suppress: Obsidian resolves ambiguity by proximity where this does not, and Obsidian counts frontmatter links that an earlier version of these rules would have dropped.
+Both halves are tracked: `scripts/obsidian-export-resolved-links.js` is the console snippet that produces the export, with the procedure in its header, and `scripts/compare-ground-truth.py` performs the comparison. Neither knows anything about a particular corpus. The export itself is a measurement artifact and lives outside this repo (ADR 0008).
+
+**Compare counts, not just pairs.** The map is keyed by source and target with a count, and a rule that double-counts one link leaves every pair intact while changing its multiplicity. The first comparison found 25 disagreeing pairs and a further **14 pairs that agreed on existence and disagreed by one on count**; reducing the ground truth to target sets would have hidden the second group entirely.
+
+Expect disagreements in both directions and treat each as a finding rather than a bug to suppress. Two are known and intentional:
+
+- **Ambiguity.** Obsidian resolves a multi-candidate target to one file by proximity; this resolves to all candidates and counts it. Expect a superset here.
+- **The basename fallback.** Obsidian reports a path-form link that misses as unresolved; this retries on the basename. Recorded through `resolved_by` rather than removed - see Resolution above.
+
+The first full comparison, 2026-10-16 against Obsidian 1.13.7, agreed on **2,231 of 2,233** resolved pairs. Every remaining disagreement traced to one of the three rules now stated above, which is the evidence those rules are stated rather than guessed.
 
 ## Retrieval
 
@@ -507,6 +527,10 @@ Named here so the spec, not the implementer's mood, decides what is covered.
 - A wikilink inside an inline code span is not extracted
 - `[[note|alias]]` and `[[note#heading]]` both yield `note`
 - A trailing `.md` and surrounding whitespace are stripped
+- `[[#Some Heading]]`, with no note name, is not recorded as a link at all
+- A wikilink that is the whole value of a frontmatter property is counted; one embedded in a free-text property value is not
+- A note whose frontmatter is invalid YAML yields no frontmatter links, and no frontmatter key reaches its body
+- `resolved_by` is `path`, `basename` or `unresolved`, and is `unresolved` exactly when `resolved` is empty
 - `link_path` keeps the path form that `target` reduces away
 - A `WikiLink` constructed directly, with an empty `raw`, still resolves - resolution consumes fields, never `raw`
 - A path-form target resolves by full path when it exists, by basename otherwise
