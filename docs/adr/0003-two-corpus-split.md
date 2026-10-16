@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-10-14
+supplemented-by: "0008"
 ---
 
 # 0003. Two corpora, and the measurement artifacts stay private

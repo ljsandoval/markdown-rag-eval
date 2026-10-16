@@ -50,8 +50,9 @@ examples/corpus/   # the example corpus, shipped and public (ADR 0007)
 tests/fixtures/    # test inputs, minimal and artificial (ADR 0007)
 eval/
     fixture.yaml   # eval set for the example corpus, public
-    private/       # vault eval set, gitignored, lives in the private mirror
 ```
+
+There is no `eval/private/` directory in this repository. The private eval set and every results file live **outside the repo entirely**, passed in through `--questions` and `--out`; see ADR 0008. Nothing here needs to know where, which is why the CLI takes paths rather than resolving a convention.
 
 One module per concern, each independently testable. `retrieve.py` must not import `chunker.py` - it consumes an index, not a corpus.
 
@@ -370,7 +371,7 @@ The fixture corpus takes up most of this document because it had to be specified
 | Eval set | 8 to 10 questions | **25 questions, 10 held out** |
 | Job | Prove the code runs; let anyone reproduce the demo | **Produce the numbers that get discussed** |
 | Reproducible by others | Yes | No, and labelled as such |
-| Where results live | Public repo | Private repo |
+| Where results live | This repo, committed | Outside it, in a private repo (ADR 0008) |
 
 A number measured on notes and questions written by the same person is close to circular, which is why the fixture deliberately does not produce the headline. Reasoning in the private design notes.
 

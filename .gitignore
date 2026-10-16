@@ -27,7 +27,7 @@ index/
 *.faiss
 
 # Private measurement artifacts. The eval set, per-question results and failure
-# analysis are kept in the private mirror, never here: they carry note paths and
-# verbatim chunk text from a private corpus. See README, "Two corpora".
-eval/private/
+# analysis live outside this repository entirely and are passed in by path, never
+# kept here: they carry note paths and verbatim chunk text from a private corpus.
+# See docs/adr/0008-where-private-artifacts-live.md.
 results/
