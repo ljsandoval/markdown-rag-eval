@@ -23,12 +23,9 @@ Two things the comparison must do, both learned the hard way:
   note is resolved by Obsidian and then dropped by the export's target filter,
   so it is in neither map. Counted separately here rather than silently lost.
 
-TODO, in two steps, in this order. **#17** gives frontmatter stripping the one
-home the Corpus contract specifies, and `_parse` below is replaced by that
-function. **#4** then makes body links come from the chunker's output rather
-than from a local `extract` call. Both are specified but unbuilt, so this
-follows the spec as closely as currently possible and flags the unification
-forward.
+TODO: **#4** will make body links come from the chunker's output rather than
+from a local `extract` call here. Specified but unbuilt, so this follows the
+spec as closely as currently possible and flags the unification forward.
 """
 
 from __future__ import annotations
@@ -39,34 +36,15 @@ import json
 import pathlib
 import sys
 
-import frontmatter
-import yaml
-
 from mdrag import wikilinks
-from mdrag.corpus import discover_notes, load_exclusions
-
-
-def _parse(text: str) -> tuple[dict[str, object], str]:
-    """Split frontmatter from body, treating unparseable YAML as absent metadata.
-
-    Mirrors `corpus.load_note`'s tolerance. See the module TODO: the stripping
-    rule is specified to have exactly one home, and this is not it.
-    """
-    try:
-        post = frontmatter.loads(text)
-    except yaml.YAMLError:
-        return {}, text
-    return post.metadata, post.content
+from mdrag.corpus import discover_notes, frontmatter_value_links, load_exclusions, parse_frontmatter
 
 
 def _note_links(text: str) -> list[wikilinks.WikiLink]:
-    metadata, body = _parse(text)
+    metadata, body = parse_frontmatter(text)
     links = list(wikilinks.extract(body))
     for value in metadata.values():
-        items = [value] if isinstance(value, str) else value if isinstance(value, list) else []
-        for item in items:
-            if isinstance(item, str):
-                links.extend(wikilinks.extract(item))
+        links.extend(frontmatter_value_links(value))
     return links
 
 

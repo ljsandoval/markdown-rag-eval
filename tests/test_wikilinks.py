@@ -92,3 +92,25 @@ def test_resolve_reads_the_model_rather_than_reparsing_raw() -> None:
     )
     resolved = resolve([link], ["people/jun-okafor.md", "other/jun-okafor.md"])
     assert resolved[0].resolved == ["people/jun-okafor.md"]
+
+
+def test_same_note_heading_reference_is_not_recorded_as_a_link() -> None:
+    links = extract("See [[#Some Heading]] and also [[#Another Heading]] below.")
+    assert links == []
+
+
+def test_resolved_by_is_path_basename_or_unresolved_matching_empty_resolved() -> None:
+    links = extract("[[people/jun-okafor]] [[glossary]] [[nowhere]]")
+    resolved = resolve(links, ["people/jun-okafor.md", "reference/glossary.md"])
+    by_target = {link.target: link for link in resolved}
+    assert by_target["jun-okafor"].resolved_by == "path"
+    assert by_target["glossary"].resolved_by == "basename"
+    assert by_target["nowhere"].resolved_by == "unresolved"
+    for link in resolved:
+        assert (link.resolved_by == "unresolved") == (link.resolved == [])
+
+
+def test_path_form_target_resolving_only_by_basename_fallback_is_recorded_as_such() -> None:
+    links = extract("[[wrong-folder/glossary]]")
+    resolved = resolve(links, ["reference/glossary.md"])
+    assert resolved[0].resolved_by == "basename"

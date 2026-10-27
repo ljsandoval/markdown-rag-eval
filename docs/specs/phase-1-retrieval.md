@@ -292,12 +292,15 @@ Both halves are tracked: `scripts/obsidian-export-resolved-links.js` is the cons
 
 **Compare counts, not just pairs.** The map is keyed by source and target with a count, and a rule that double-counts one link leaves every pair intact while changing its multiplicity. The first comparison found 25 disagreeing pairs and a further **14 pairs that agreed on existence and disagreed by one on count**; reducing the ground truth to target sets would have hidden the second group entirely.
 
-Expect disagreements in both directions and treat each as a finding rather than a bug to suppress. Two are known and intentional:
+Expect disagreements in both directions and treat each as a finding rather than a bug to suppress. Three are known and intentional:
 
 - **Ambiguity.** Obsidian resolves a multi-candidate target to one file by proximity; this resolves to all candidates and counts it. Expect a superset here.
 - **The basename fallback.** Obsidian reports a path-form link that misses as unresolved; this retries on the basename. Recorded through `resolved_by` rather than removed - see Resolution above.
+- **Same-note heading references.** `[[#Some Heading]]` resolves, in Obsidian, to the containing note - a self-edge. This implementation drops it at extraction instead (see Extraction above), so every such link appears as "obsidian only" in the comparison. Not visible in the first full comparison because the corpus held none at the time; three appeared once the vault grew, which is how this entry came to be written rather than guessed.
 
 The first full comparison, 2026-10-16 against Obsidian 1.13.7, agreed on **2,231 of 2,233** resolved pairs. Every remaining disagreement traced to one of the three rules now stated above, which is the evidence those rules are stated rather than guessed.
+
+A re-export on 2026-10-27, after #17 implemented those three rules, agreed on **2,269 of 2,272** resolved pairs by existence - that fraction is against Obsidian's side alone, so it does not by itself account for every disagreement. The comparison script's full tally is **5**: the 3 pairs Obsidian has and this does not (`2,272 - 2,269`, all three same-note heading references), the 1 pair this has and Obsidian does not (the basename fallback), and 1 further pair that both sides have but count differently (also the basename fallback, rescuing a second stale path-form link to the same target an existing body link already reached). None traced to an unstated rule.
 
 ## Retrieval
 

@@ -21,6 +21,30 @@ from mdrag.wikilinks import WikiLink
 
 IGNORE_FILENAME = ".mdragignore"
 
+_WHOLE_LINK_RE = re.compile(r"^!?\[\[[^\]]+\]\]$")
+
+
+def parse_frontmatter(text: str) -> tuple[dict[str, object], str]:
+    """Split frontmatter from body. The one home for this: the loader and the
+    chunker both need the post-frontmatter body (Corpus contract).
+
+    A missing or malformed frontmatter block is not an error - metadata is
+    empty - but the delimited block is stripped from the body either way.
+    """
+    stripped = text.strip()
+    handler = frontmatter.detect_format(stripped, frontmatter.handlers)
+    if handler is None:
+        return {}, stripped
+    try:
+        fm, content = handler.split(stripped)
+    except ValueError:
+        return {}, stripped
+    try:
+        data = handler.load(fm)
+    except yaml.YAMLError:
+        return {}, content.strip()
+    return (data if isinstance(data, dict) else {}), content.strip()
+
 
 class Note(BaseModel):
     note_path: str
@@ -91,16 +115,17 @@ def discover_notes(corpus_root: Path, exclusions: ExclusionRules) -> list[str]:
     return sorted(note_paths)
 
 
-def _iter_frontmatter_links(value: object) -> list[WikiLink]:
+def frontmatter_value_links(value: object) -> list[WikiLink]:
+    """A frontmatter link counts only when the trimmed value IS a link, or an
+    item of a list of them - not one embedded mid-sentence in free text.
+    """
     links: list[WikiLink] = []
     if isinstance(value, str):
-        links.extend(wikilinks.extract(value))
+        if _WHOLE_LINK_RE.match(value.strip()):
+            links.extend(wikilinks.extract(value))
     elif isinstance(value, list):
         for item in value:
-            links.extend(_iter_frontmatter_links(item))
-    elif isinstance(value, dict):
-        for item in value.values():
-            links.extend(_iter_frontmatter_links(item))
+            links.extend(frontmatter_value_links(item))
     return links
 
 
@@ -112,11 +137,8 @@ def load_note(corpus_root: Path, note_path: str) -> Note:
     except UnicodeDecodeError as exc:
         raise ValueError(f"{note_path}: could not decode as UTF-8") from exc
 
-    try:
-        post = frontmatter.loads(text)
-    except yaml.YAMLError:
-        post = frontmatter.Post(text)
-    raw_tags = post.metadata.get("tags")
+    metadata, _ = parse_frontmatter(text)
+    raw_tags = metadata.get("tags")
     tags: list[str]
     if isinstance(raw_tags, str):
         tags = [raw_tags]
@@ -124,12 +146,12 @@ def load_note(corpus_root: Path, note_path: str) -> Note:
         tags = [str(item) for item in raw_tags]
     else:
         tags = []
-    raw_area = post.metadata.get("area")
+    raw_area = metadata.get("area")
     area: str | None = raw_area if isinstance(raw_area, str) else None
 
     frontmatter_links: list[WikiLink] = []
-    for value in post.metadata.values():
-        frontmatter_links.extend(_iter_frontmatter_links(value))
+    for value in metadata.values():
+        frontmatter_links.extend(frontmatter_value_links(value))
 
     return Note(
         note_path=note_path,

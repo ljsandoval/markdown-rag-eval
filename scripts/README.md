@@ -27,9 +27,11 @@ uv run python scripts/compare-ground-truth.py \
 Exit status is 1 while any disagreement is unexplained, so it can gate a
 commit once the known classes are resolved.
 
-**It currently exits 1 on the target corpus, by design.** As of 2026-10-16 it
-reports 25 pairs found only by `mdrag`, 2 found only by Obsidian, and 14 pairs
-agreeing on existence while differing by one on count. All 41 trace to the
-three rules the spec gained the same day, and the code implementing those rules
-is the open issue. This is the failing baseline: the numbers should go to zero
-when that issue closes, and a test that has never failed proves nothing.
+**It still exits 1 on the target corpus, and that is expected.** #17 implemented
+the three rules behind the 2026-10-16 baseline's 41 disagreements. A fresh
+export on 2026-10-27 agreed on 2,269 of 2,272 resolved pairs; the remaining
+five all trace to the divergences the spec's Validation section names as
+known and intentional (the basename fallback, and same-note heading
+references), not to an unstated rule. A corpus with any such link will always
+produce a nonzero exit here - "zero disagreements" means zero *unexplained*
+ones, per the Validation section's own framing.

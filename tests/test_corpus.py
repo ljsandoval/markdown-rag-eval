@@ -17,6 +17,7 @@ from mdrag.corpus import (
     load_corpus,
     load_exclusions,
     load_note,
+    parse_frontmatter,
     parse_mdragignore,
 )
 
@@ -55,6 +56,28 @@ def test_malformed_frontmatter_yields_empty_tags_and_area_without_raising(tmp_pa
     note = load_note(tmp_path, "broken.md")
     assert note.tags == []
     assert note.area is None
+
+
+def test_malformed_frontmatter_block_does_not_survive_into_the_body() -> None:
+    text = "---\ntags: [not: valid: yaml\n---\nBody text, no frontmatter keys here.\n"
+    _, body = parse_frontmatter(text)
+    assert "tags:" not in body
+    assert "---" not in body
+    assert body == "Body text, no frontmatter keys here."
+
+
+def test_frontmatter_link_counts_only_when_property_value_is_a_link(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "a.md",
+        "---\n"
+        "area: '[[reference/glossary]]'\n"
+        "next_action: 'Compare against [[Other Note]] and pick one'\n"
+        "---\n"
+        "Body.\n",
+    )
+    note = load_note(tmp_path, "a.md")
+    assert len(note.frontmatter_wikilinks) == 1
+    assert note.frontmatter_wikilinks[0].target == "glossary"
 
 
 def test_utf8_decode_failure_names_the_file_and_aborts(tmp_path: Path) -> None:
