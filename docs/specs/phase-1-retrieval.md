@@ -38,7 +38,7 @@ src/mdrag/
     __init__.py
     corpus.py      # discover and load markdown files, parse frontmatter
     markdown.py    # one lexical scan: code ranges and ATX headings outside fences
-    wikilinks.py   # extract and resolve wikilinks, for any text
+    wikilinks.py   # extract and resolve wikilinks - DEFERRED scope, see below
     chunker.py     # heading-aware splitting
     embed.py       # model load, prefix handling, batch encode, L2 normalize
     index.py       # build and load the on-disk array
@@ -57,9 +57,9 @@ There is no `eval/private/` directory in this repository. The private eval set a
 
 One module per concern, each independently testable. `retrieve.py` must not import `chunker.py` - it consumes an index, not a corpus.
 
-**`wikilinks.py` is extraction's only home, and both callers use it.** `corpus.py` applies it to frontmatter values and `chunker.py` applies it to chunk text; the rules are identical and live in one section, so they live in one module. Splitting them because one caller is implemented before the other would put the same ten rules in two places, which is the failure this layout exists to avoid.
+**`wikilinks.py` is extraction's only home, and both callers use it.** `corpus.py` applies it to frontmatter values and `chunker.py` applies it to chunk text; the rules are identical, so they live in one module. Its signature takes text and returns links, so it knows nothing about corpora or chunks.
 
-Its signature takes text and returns links, so it knows nothing about corpora or chunks: `extract(text: str) -> list[WikiLink]`, plus a resolver that takes a corpus index of note paths.
+**`wikilinks.py` is deferred out of this phase.** The link graph contributes nothing to any acceptance criterion below, and its only consumer was the tool that validated it. The module stays, tested and populated, but it is not a Phase 1 obligation and nothing here gates on it. Rules, the Obsidian validation apparatus, and two known defects are in `docs/specs/deferred-wikilink-graph.md`.
 
 **`markdown.py` is the one lexical scan, for the same reason.** `wikilinks.extract` needs to know which character ranges are code, to skip links inside them; `chunker.chunk` needs ATX headings that are not inside a fenced block. Both questions depend on tracking the same fence state across the same text, so one module does that single pass and hands back both derived facts - `code_ranges` and `headings` - rather than each caller re-deriving fence state on its own. It imports nothing from this project, which is what keeps `corpus.py` -> `wikilinks.py` -> `chunker.py` acyclic: nothing routes back through a shared state machine.
 
@@ -82,9 +82,11 @@ class Chunk(BaseModel):
     char_end: int
     tags: list[str]         # from frontmatter
     area: str | None        # from frontmatter
-    wikilinks: list[WikiLink]   # found in THIS chunk's text only
+    wikilinks: list[WikiLink]   # DEFERRED scope; populated, but nothing here reads it
     char_count: int
 
+# DEFERRED scope. Kept here because Chunk and Note reference it; the extraction
+# and resolution rules are in docs/specs/deferred-wikilink-graph.md.
 class WikiLink(BaseModel):
     link_path: str            # post-split, trimmed, .md stripped; full form, separators kept
     target: str               # link_path's final segment: what a basename match uses
@@ -97,7 +99,7 @@ class Note(BaseModel):
     note_path: str
     tags: list[str]
     area: str | None
-    frontmatter_wikilinks: list[WikiLink]   # stored ONCE here, never on chunks
+    frontmatter_wikilinks: list[WikiLink]   # DEFERRED scope; stored ONCE here, never on chunks
 
 class EvalQuestion(BaseModel):
     id: str                   # stable, e.g. "q007"
@@ -111,13 +113,9 @@ class EvalQuestion(BaseModel):
 
 `char_start`/`char_end` exist so a retrieved chunk can be traced back to its exact source span. That is what makes a failure analysis possible rather than speculative.
 
-`WikiLink.resolved` carries the resolution outcome in one field rather than three: empty means unresolved, one entry is the normal case, two or more is ambiguous. So "count the ambiguous links" is a filter rather than a separate structure, and nothing has to be kept in sync.
-
-**`WikiLink` carries both `link_path` and `target` because resolution needs both.** The rule is full-path-first then basename-fallback, so a resolver has to know whether the link was written as a path, and reducing a link to its final segment destroys exactly that. Carrying only the reduced form forces the resolver to re-parse `raw` and reimplement the alias and heading split, which puts the parse rule in two places and makes a future addition - block references, say - able to drift silently into wrong resolution rather than an error. With both fields present, `raw` means only what its comment says.
+The rationale for `WikiLink`'s fields and for where links are stored is deferred scope; it moved to `docs/specs/deferred-wikilink-graph.md` with the rules.
 
 **Per-note chunk counts are derived, not stored.** `Note` is built by the loader, which parses one file's frontmatter and never chunks anything, so it cannot know the number; a field for it would be a placeholder that no validation can distinguish from a note that genuinely produced no chunks. Anything wanting the distribution counts over the chunk list by `note_path`, which is what the index build already does for the length histogram. The `chunk_count` in the index manifest is the corpus-wide total and is unrelated.
-
-**`Note` is where frontmatter links live**, per ADR 0005. A chunk's `wikilinks` holds only what is in that chunk's own text. Anything consuming the graph takes the union of a note's `frontmatter_wikilinks` and its chunks' `wikilinks` - and counts the former **once**, which is the whole reason the field is here and not on the chunk.
 
 ## Corpus contract
 
@@ -161,7 +159,7 @@ The fixture corpus ships a `.mdragignore` containing `people/`, which is how the
 def chunk(note_path: str, body: str, tags: list[str], area: str | None) -> list[Chunk]: ...
 ```
 
-Body text in, chunks out. No file reading, no corpus, no import of `corpus.py` - the chunker is handed already-stripped text, the same shape as `wikilinks.extract(text)` and `parse_frontmatter(text)`. The caller that stitches note loading to chunking owns the frontmatter split and the resolution pass against the corpus-wide note index.
+Body text in, chunks out. No file reading, no corpus, no import of `corpus.py` - the chunker is handed already-stripped text, the same shape as `parse_frontmatter(text)`. The caller that stitches note loading to chunking owns the frontmatter split.
 
 Split at ATX headings. The rules exist because each one has a failure case in the fixture corpus:
 
@@ -171,7 +169,7 @@ Split at ATX headings. The rules exist because each one has a failure case in th
 4. **Content before the first heading becomes one chunk** with `heading = None`.
 5. **Tables and Mermaid blocks are never split**, which follows from rules 2 and 3 - neither contains a heading line - but the fixture asserts it directly because it is the rule most likely to break under a future refactor.
 6. **No floor, no ceiling in this phase.** Chunks are emitted at whatever size the headings imply. Instead, the index build **writes a chunk-length histogram**, which is the input to the floor/ceiling decision. Do not guess those bounds before the histogram exists. **The ceiling is not purely a tuning knob.** Small embedding models cap at 256 or 512 tokens and **silently truncate** past it, so a long chunk produces an ordinary-looking vector representing only its opening. The ceiling therefore has to be derived from the chosen model's max sequence length. The index build **must log how many chunks exceed it**, which makes the truncation visible instead of invisible. See the private reference notes on embeddings.
-7. `wikilinks` are extracted per chunk, by `wikilinks.py`. The rules are their own section below, because there are more of them than a chunking rule should carry, and because `corpus.py` needs the same ones for frontmatter.
+7. `wikilinks` are extracted per chunk, by `wikilinks.py`. **Deferred scope** - the field is populated because the code exists, but no criterion depends on it and the rules live in `docs/specs/deferred-wikilink-graph.md`. **Do not write chunk links into the index sidecar** while that document's regex defect is open.
 
 ## Embedding model
 
@@ -247,71 +245,6 @@ Recording a model id is not sufficient: a HuggingFace repo can be updated in pla
 The index load aborts on a mismatch of `model_id` **or** `model_revision` against what is requested, for the reason in the Retrieval section: the arithmetic still works and the rankings are quietly wrong.
 
 First run downloads the model to the local cache; every later run is offline. The index build must not require the network once the cache is warm, and a test with the network unavailable is the honest way to know that.
-
-## Wikilink extraction and resolution
-
-Decisions and the measurements behind them are in ADR 0005. This states the mechanics.
-
-### Extraction
-
-Match `(!?)\[\[([^\]]+)\]\]`, capturing the embed marker and the full inner text. Then split the inner text on the first `|` (alias) and the first `#` (heading or block subpath), keeping the part before both.
-
-Skip, in this order, before matching:
-
-1. **Fenced code blocks.** Use `markdown.scan(text).code_ranges` rather than re-deriving fence state here.
-2. **Inline code spans** - text between single backticks. **108 wikilinks in the target corpus sit inside these**, more than the 49 inside fenced blocks, so missing this is the larger error. `markdown.scan` reports both kinds of range together, since both are skipped the same way.
-
-Then normalize in two stages, because resolution consumes both. Strip surrounding whitespace and a trailing `.md` to get `link_path`, which keeps any `/` separators intact; `target` is then `link_path`'s final `/`-separated segment. Resolution reads these two fields and **never re-parses `raw`**.
-
-**An empty `link_path` after the split is a same-note reference and is not an edge.** `[[#Some Heading]]` names a section of the containing note, so Obsidian resolves it to that note; recording it would add a self-edge to every note that links its own sections, which distorts anything built on the graph later. It is dropped the way an attachment embed is - not recorded, not an error.
-
-Not supported, each because the corpus contains none: alias resolution via frontmatter `aliases:`, markdown-style `[text](note.md)` links, and targets containing nested brackets. If a future corpus needs them, measure first.
-
-### Resolution
-
-1. If `link_path` contains a `/`, try it as a full relative path against the corpus first.
-2. Otherwise, and as fallback, match `target` against note basenames, **case-sensitively**.
-3. More than one candidate is **ambiguous**: resolve to all of them and count it.
-4. No candidate is **unresolved**: record it and carry on. This is normal, not an error.
-
-**How a link resolved is recorded, not just whether.** `resolved_by` carries `path`, `basename` or `unresolved`, and `resolved_by == "unresolved"` holds exactly when `resolved` is empty.
-
-The reason is that step 2's fallback is **deliberately more forgiving than Obsidian**, which stops when a path-form link misses. The fallback is right for retrieval - it finds the note a reader meant - but it also silently rescues links whose paths went stale, so a corpus can rot without any number moving. Recording the provenance keeps both: the graph stays dense, and a basename-fallback count in the characterization output says how much rescuing was needed. One link in the target corpus resolves this way, from a path form left behind by a folder rename.
-
-### Where links live
-
-Extraction for both rows is `wikilinks.py`. `corpus.py` calls it on frontmatter values and owns the `Note`; `chunker.py` calls it on chunk text and owns the `Chunk`.
-
-| Source | Stored on | Why |
-|---|---|---|
-| A chunk's own text | That chunk's `wikilinks` | It is that passage's reference |
-| The note's frontmatter | **The note, once** | 22.6% of the graph; replicating it per chunk double-counts on aggregation. ADR 0005. |
-
-**A frontmatter link counts only when the property value is a link.** That means the trimmed value is exactly one wikilink, or an item of a list of them - `Area: "[[Career]]"` and a `Links:` list both count. A wikilink embedded mid-sentence in a free-text property does not: `next_action: Compare against [[Other Note]] and pick one` is prose that mentions a note, not a declared relation, which is how Obsidian treats it too. Five notes in the target corpus have such embedded links.
-
-Each entry carries whether it was an **embed** (`![[...]]`) or a plain link. An embed whose target has a non-markdown extension - image, audio, pdf - is **not an edge** and is not recorded; 24 of 33 embeds in the target corpus are attachments.
-
-Anything consuming the graph takes the union of a note's frontmatter links and its chunks' links.
-
-### Validation
-
-The implementation is checked against ground truth exported from Obsidian's own `app.metadataCache.resolvedLinks`, which is the authoritative resolver. A one-off export is enough; this is a correctness check, not a runtime dependency.
-
-Both halves are tracked: `scripts/obsidian-export-resolved-links.js` is the console snippet that produces the export, with the procedure in its header, and `scripts/compare-ground-truth.py` performs the comparison. Neither knows anything about a particular corpus. The export itself is a measurement artifact and lives outside this repo (ADR 0008).
-
-**Compare counts, not just pairs.** The map is keyed by source and target with a count, and a rule that double-counts one link leaves every pair intact while changing its multiplicity. The first comparison found 25 disagreeing pairs and a further **14 pairs that agreed on existence and disagreed by one on count**; reducing the ground truth to target sets would have hidden the second group entirely.
-
-Expect disagreements in both directions and treat each as a finding rather than a bug to suppress. Three are known and intentional:
-
-- **Ambiguity.** Obsidian resolves a multi-candidate target to one file by proximity; this resolves to all candidates and counts it. Expect a superset here.
-- **The basename fallback.** Obsidian reports a path-form link that misses as unresolved; this retries on the basename. Recorded through `resolved_by` rather than removed - see Resolution above.
-- **Same-note heading references.** `[[#Some Heading]]` resolves, in Obsidian, to the containing note - a self-edge. This implementation drops it at extraction instead (see Extraction above), so every such link appears as "obsidian only" in the comparison. Not visible in the first full comparison because the corpus held none at the time; three appeared once the vault grew, which is how this entry came to be written rather than guessed.
-
-The first full comparison, 2026-10-16 against Obsidian 1.13.7, agreed on **2,231 of 2,233** resolved pairs. Every remaining disagreement traced to one of the three rules now stated above, which is the evidence those rules are stated rather than guessed.
-
-A re-export on 2026-10-27, after #17 implemented those three rules, agreed on **2,269 of 2,272** resolved pairs by existence - that fraction is against Obsidian's side alone, so it does not by itself account for every disagreement. The comparison script's full tally is **5**: the 3 pairs Obsidian has and this does not (`2,272 - 2,269`, all three same-note heading references), the 1 pair this has and Obsidian does not (the basename fallback), and 1 further pair that both sides have but count differently (also the basename fallback, rescuing a second stale path-form link to the same target an existing body link already reached). None traced to an unstated rule.
-
-**The comparison is expected to exit 0.** `scripts/compare-ground-truth.py` classifies each of the three divergence classes above and excludes them from the exit status; only a disagreement matching none of them fails the run. Against the 2026-10-27 export it prints 5 intentional divergences and 0 unexplained. A corpus with any of these three link shapes will always carry some nonzero count of intentional divergences - that is expected and is not a reason to treat a nonzero exit as normal; a nonzero exit means an *unexplained* disagreement appeared.
 
 ## Retrieval
 
@@ -523,7 +456,7 @@ Criterion 10 is the one that converts a number into evidence of engineering, and
 
 Named here so the spec, not the implementer's mood, decides what is covered.
 
-**Example data is not tested here.** `examples/corpus/` is example data, not a test input, and the module suite asserts module behaviour (ADR 0007). Wikilink and chunker cases below run against purpose-built inputs in `tests/fixtures/` or `tmp_path`, which is what lets them cover cases the example corpus does not contain.
+**Example data is not tested here.** `examples/corpus/` is example data, not a test input, and the module suite asserts module behaviour (ADR 0007). Chunker cases below run against purpose-built inputs in `tests/fixtures/` or `tmp_path`, which is what lets them cover cases the example corpus does not contain.
 
 **Chunker**
 
@@ -534,25 +467,6 @@ Named here so the spec, not the implementer's mood, decides what is covered.
 - `breadcrumb` is correct for a four-level-deep heading, which has three enclosing headings
 - `char_start`/`char_end` slice the source body back to the chunk text exactly
 - Frontmatter keys never appear in any chunk's text
-
-**Wikilinks**
-
-- A wikilink inside a fenced code block is not extracted
-- A wikilink inside an inline code span is not extracted
-- `[[note|alias]]` and `[[note#heading]]` both yield `note`
-- A trailing `.md` and surrounding whitespace are stripped
-- `[[#Some Heading]]`, with no note name, is not recorded as a link at all
-- A wikilink that is the whole value of a frontmatter property is counted; one embedded in a free-text property value is not
-- A note whose frontmatter is invalid YAML yields no frontmatter links, and no frontmatter key reaches its body
-- `resolved_by` is `path`, `basename` or `unresolved`, and is `unresolved` exactly when `resolved` is empty
-- `link_path` keeps the path form that `target` reduces away
-- A `WikiLink` constructed directly, with an empty `raw`, still resolves - resolution consumes fields, never `raw`
-- A path-form target resolves by full path when it exists, by basename otherwise
-- Resolution is case-sensitive: `[[glossary]]` does not match `Glossary.md`
-- An ambiguous target resolves to every candidate and is counted as ambiguous
-- An unresolved target is recorded and does not raise
-- `![[note]]` is an edge and is flagged as an embed; `![[image.png]]` is not an edge
-- Frontmatter links appear once per note, **not** once per chunk
 
 **Exclusions**
 

@@ -1,5 +1,7 @@
 # scripts/
 
+**Deferred-scope tooling, as of 2026-10-28.** Both scripts below serve the wikilink graph, which was deferred out of Phase 1 - see `docs/specs/deferred-wikilink-graph.md`. **The comparison is not a Phase 1 gate**, and a nonzero exit from it does not block Phase 1 work. It exits nonzero today; two known defects and the unsettled question of what role the ground-truth export should play are recorded in that document.
+
 Verification tools. Not part of the package, not run by the test suite, and
 corpus-agnostic like everything else here: they take paths.
 
