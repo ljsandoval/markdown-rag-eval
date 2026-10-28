@@ -13,9 +13,9 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from mdrag import markdown
+
 _LINK_RE = re.compile(r"(!?)\[\[([^\]]+)\]\]")
-_FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
-_INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 
 
 class WikiLink(BaseModel):
@@ -36,41 +36,13 @@ def _split_before_alias_and_heading(inner: str) -> str:
     return inner[:idx]
 
 
-def _skip_ranges(text: str) -> list[tuple[int, int]]:
-    """Char ranges to exclude from matching: fenced code blocks, inline code spans."""
-    ranges: list[tuple[int, int]] = []
-    pos = 0
-    fence_char: str | None = None
-    fence_len = 0
-    for line in text.splitlines(keepends=True):
-        line_start = pos
-        pos += len(line)
-        stripped = line.rstrip("\n")
-        marker_match = _FENCE_RE.match(stripped)
-        marker = marker_match.group(1) if marker_match else None
-        if fence_char is None:
-            if marker is not None:
-                fence_char = marker[0]
-                fence_len = len(marker)
-                ranges.append((line_start, pos))
-                continue
-            for m in _INLINE_CODE_RE.finditer(stripped):
-                ranges.append((line_start + m.start(), line_start + m.end()))
-        else:
-            ranges.append((line_start, pos))
-            if marker is not None and marker[0] == fence_char and len(marker) >= fence_len:
-                fence_char = None
-                fence_len = 0
-    return ranges
-
-
 def _in_ranges(pos: int, ranges: list[tuple[int, int]]) -> bool:
     return any(start <= pos < end for start, end in ranges)
 
 
 def extract(text: str) -> list[WikiLink]:
     """Extract wikilinks from text. Does not resolve targets; see `resolve`."""
-    skip_ranges = _skip_ranges(text)
+    skip_ranges = markdown.scan(text).code_ranges
     links: list[WikiLink] = []
     for m in _LINK_RE.finditer(text):
         if _in_ranges(m.start(), skip_ranges):

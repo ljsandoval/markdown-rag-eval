@@ -37,6 +37,7 @@ Build and measure **retrieval only**. No model calls, no generation, no answers.
 src/mdrag/
     __init__.py
     corpus.py      # discover and load markdown files, parse frontmatter
+    markdown.py    # one lexical scan: code ranges and ATX headings outside fences
     wikilinks.py   # extract and resolve wikilinks, for any text
     chunker.py     # heading-aware splitting
     embed.py       # model load, prefix handling, batch encode, L2 normalize
@@ -59,6 +60,8 @@ One module per concern, each independently testable. `retrieve.py` must not impo
 **`wikilinks.py` is extraction's only home, and both callers use it.** `corpus.py` applies it to frontmatter values and `chunker.py` applies it to chunk text; the rules are identical and live in one section, so they live in one module. Splitting them because one caller is implemented before the other would put the same ten rules in two places, which is the failure this layout exists to avoid.
 
 Its signature takes text and returns links, so it knows nothing about corpora or chunks: `extract(text: str) -> list[WikiLink]`, plus a resolver that takes a corpus index of note paths.
+
+**`markdown.py` is the one lexical scan, for the same reason.** `wikilinks.extract` needs to know which character ranges are code, to skip links inside them; `chunker.chunk` needs ATX headings that are not inside a fenced block. Both questions depend on tracking the same fence state across the same text, so one module does that single pass and hands back both derived facts - `code_ranges` and `headings` - rather than each caller re-deriving fence state on its own. It imports nothing from this project, which is what keeps `corpus.py` -> `wikilinks.py` -> `chunker.py` acyclic: nothing routes back through a shared state machine.
 
 **Prerequisite:** `README.md` must exist at the repo root before `uv sync` will work at all. `pyproject.toml` names it in the `readme` field, and hatchling refuses to build the package without the file existing - this is a build prerequisite, not a documentation nicety.
 
@@ -154,11 +157,17 @@ The fixture corpus ships a `.mdragignore` containing `people/`, which is how the
 
 ## Chunking rules
 
+```python
+def chunk(note_path: str, body: str, tags: list[str], area: str | None) -> list[Chunk]: ...
+```
+
+Body text in, chunks out. No file reading, no corpus, no import of `corpus.py` - the chunker is handed already-stripped text, the same shape as `wikilinks.extract(text)` and `parse_frontmatter(text)`. The caller that stitches note loading to chunking owns the frontmatter split and the resolution pass against the corpus-wide note index.
+
 Split at ATX headings. The rules exist because each one has a failure case in the fixture corpus:
 
-1. **Frontmatter is stripped before chunking** and never appears in chunk text.
+1. **Frontmatter is stripped before chunking** and never appears in chunk text. The stripping itself is `corpus.parse_frontmatter`'s job, called by the caller before `chunk()` ever runs - the guarantee is unchanged, only whose job it is.
 2. **Split at any line matching `^#{1,6}\s`** - a flat split at every heading level, not a hierarchical one. Hierarchy is preserved in `breadcrumb`, not in nesting.
-3. **Never split inside a fenced code block.** Track fence state across ``` and ~~~ openers, honor the longer-fence rule, and treat a `## comment` line inside a fence as text. The fixture's `runbooks/restart-the-collector.md` contains exactly this.
+3. **Never split inside a fenced code block.** `markdown.scan` tracks fence state across ``` and ~~~ openers, honors the longer-fence rule, and excludes a `## comment` line inside a fence from its `headings`; `chunker.py` consumes that result and never tracks fence state itself. The fixture's `runbooks/restart-the-collector.md` contains exactly this.
 4. **Content before the first heading becomes one chunk** with `heading = None`.
 5. **Tables and Mermaid blocks are never split**, which follows from rules 2 and 3 - neither contains a heading line - but the fixture asserts it directly because it is the rule most likely to break under a future refactor.
 6. **No floor, no ceiling in this phase.** Chunks are emitted at whatever size the headings imply. Instead, the index build **writes a chunk-length histogram**, which is the input to the floor/ceiling decision. Do not guess those bounds before the histogram exists. **The ceiling is not purely a tuning knob.** Small embedding models cap at 256 or 512 tokens and **silently truncate** past it, so a long chunk produces an ordinary-looking vector representing only its opening. The ceiling therefore has to be derived from the chosen model's max sequence length. The index build **must log how many chunks exceed it**, which makes the truncation visible instead of invisible. See the private reference notes on embeddings.
@@ -249,8 +258,8 @@ Match `(!?)\[\[([^\]]+)\]\]`, capturing the embed marker and the full inner text
 
 Skip, in this order, before matching:
 
-1. **Fenced code blocks.** Reuse the chunker's fence state rather than re-deriving it.
-2. **Inline code spans** - text between single backticks. **108 wikilinks in the target corpus sit inside these**, more than the 49 inside fenced blocks, so missing this is the larger error.
+1. **Fenced code blocks.** Use `markdown.scan(text).code_ranges` rather than re-deriving fence state here.
+2. **Inline code spans** - text between single backticks. **108 wikilinks in the target corpus sit inside these**, more than the 49 inside fenced blocks, so missing this is the larger error. `markdown.scan` reports both kinds of range together, since both are skipped the same way.
 
 Then normalize in two stages, because resolution consumes both. Strip surrounding whitespace and a trailing `.md` to get `link_path`, which keeps any `/` separators intact; `target` is then `link_path`'s final `/`-separated segment. Resolution reads these two fields and **never re-parses `raw`**.
 

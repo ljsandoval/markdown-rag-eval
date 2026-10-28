@@ -27,9 +27,9 @@ Three disagreement classes are known and intentional (spec's Validation
 section, ADR 0005) and are excluded from the exit status; anything else is
 **unexplained** and is the only thing that makes it nonzero.
 
-TODO: **#4** will make body links come from the chunker's output rather than
-from a local `extract` call here. Specified but unbuilt, so this follows the
-spec as closely as currently possible and flags the unification forward.
+Body links come from `chunker.chunk()`'s output, same as the real pipeline -
+not from a local `wikilinks.extract(body)` call - so this validates what
+actually gets indexed rather than a parallel reimplementation of it (#4).
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ import pathlib
 import re
 import sys
 
-from mdrag import wikilinks
+from mdrag import chunker, wikilinks
 from mdrag.corpus import discover_notes, frontmatter_value_links, load_exclusions, parse_frontmatter
 
 Graph = dict[str, dict[str, list[wikilinks.WikiLink]]]
@@ -53,9 +53,11 @@ SAME_NOTE_HEADING = "same-note heading reference"
 AMBIGUITY = "ambiguity"
 
 
-def _note_links(text: str) -> list[wikilinks.WikiLink]:
+def _note_links(note_path: str, text: str) -> list[wikilinks.WikiLink]:
     metadata, body = parse_frontmatter(text)
-    links = list(wikilinks.extract(body))
+    links: list[wikilinks.WikiLink] = []
+    for note_chunk in chunker.chunk(note_path, body, tags=[], area=None):
+        links.extend(note_chunk.wikilinks)
     for value in metadata.values():
         links.extend(frontmatter_value_links(value))
     return links
@@ -81,7 +83,7 @@ def build(corpus: pathlib.Path) -> tuple[Graph, int, dict[str, str]]:
         text = (corpus / note_path).read_text(encoding="utf-8")
         texts[note_path] = text
         contributions: dict[str, list[wikilinks.WikiLink]] = collections.defaultdict(list)
-        for link in wikilinks.resolve(_note_links(text), every_note):
+        for link in wikilinks.resolve(_note_links(note_path, text), every_note):
             for target in link.resolved:
                 if target in kept_set:
                     contributions[target].append(link)
