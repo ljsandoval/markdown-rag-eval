@@ -15,5 +15,6 @@ The prompt given to each implementation session, kept here rather than retyped.
 |---|---|
 | `issue-1.md` | Implementing issue #1, the first run through this process. Superseded by `/implement-issue`. |
 | `issue-1-closeout.md` | Finishing #1's loop: findings to the issue, spec amendments, rescoping #16. One-off. |
+| `issue-18-then-4.md` | Running #18 then #4 unattended, with a human-judgment gate between them. One-off: the skills chain within a label, not across two specific issues in order. |
 
 One lesson already recorded from `issue-1.md`: it said "report back", which overrode `CLAUDE.md`'s rule that findings go in issue comments. The session reported to chat and the issue got none. **Route the report to the issue and make chat a summary** — the comment is the record.
