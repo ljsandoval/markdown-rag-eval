@@ -302,6 +302,8 @@ The first full comparison, 2026-10-16 against Obsidian 1.13.7, agreed on **2,231
 
 A re-export on 2026-10-27, after #17 implemented those three rules, agreed on **2,269 of 2,272** resolved pairs by existence - that fraction is against Obsidian's side alone, so it does not by itself account for every disagreement. The comparison script's full tally is **5**: the 3 pairs Obsidian has and this does not (`2,272 - 2,269`, all three same-note heading references), the 1 pair this has and Obsidian does not (the basename fallback), and 1 further pair that both sides have but count differently (also the basename fallback, rescuing a second stale path-form link to the same target an existing body link already reached). None traced to an unstated rule.
 
+**The comparison is expected to exit 0.** `scripts/compare-ground-truth.py` classifies each of the three divergence classes above and excludes them from the exit status; only a disagreement matching none of them fails the run. Against the 2026-10-27 export it prints 5 intentional divergences and 0 unexplained. A corpus with any of these three link shapes will always carry some nonzero count of intentional divergences - that is expected and is not a reason to treat a nonzero exit as normal; a nonzero exit means an *unexplained* disagreement appeared.
+
 ## Retrieval
 
 ```python

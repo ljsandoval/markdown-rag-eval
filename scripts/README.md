@@ -24,14 +24,17 @@ uv run python scripts/compare-ground-truth.py \
     --ground-truth /path/to/obsidian-resolved-links.json
 ```
 
-Exit status is 1 while any disagreement is unexplained, so it can gate a
-commit once the known classes are resolved.
+Exit status is 1 only while a disagreement is **unexplained**. The three
+classes the spec's Validation section names as known and intentional -
+basename fallback, same-note heading references, and ambiguity - are
+classified, counted, and printed under their own headings, but excluded from
+the exit status. Anything matching none of them is reported as unexplained
+and is the only thing that fails the run.
 
-**It still exits 1 on the target corpus, and that is expected.** #17 implemented
-the three rules behind the 2026-10-16 baseline's 41 disagreements. A fresh
-export on 2026-10-27 agreed on 2,269 of 2,272 resolved pairs; the remaining
-five all trace to the divergences the spec's Validation section names as
-known and intentional (the basename fallback, and same-note heading
-references), not to an unstated rule. A corpus with any such link will always
-produce a nonzero exit here - "zero disagreements" means zero *unexplained*
-ones, per the Validation section's own framing.
+**It exits 0 on the target corpus.** #17 implemented the three rules behind
+the 2026-10-16 baseline's 41 disagreements; #18 added the classifier above so
+the known survivors stop masking a real regression. A fresh export on
+2026-10-27 agreed on 2,269 of 2,272 resolved pairs, and every one of the
+remaining five is classified: 3 same-note heading references, 1 basename
+fallback, and 1 further count disagreement also caused by the basename
+fallback. Five intentional, zero unexplained, exit 0.
