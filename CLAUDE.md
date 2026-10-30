@@ -14,6 +14,19 @@ One GitHub issue per unit of work. **Your brief is the issue plus the spec secti
 
 Issues reference spec sections and never restate them. **If an issue and the spec disagree, the spec wins** — and say so in a comment on the issue.
 
+**Dependencies between issues are GitHub issue dependencies, not prose.** They are the only authoritative answer to what blocks what:
+
+```sh
+gh issue list --state open --json number,title,blockedBy   # the whole graph, one call
+gh issue edit N --add-blocked-by 5 --add-blocking 9        # record one
+```
+
+An issue is **unblocked when every issue in its `blockedBy` is closed, or it has none**. The nodes carry `state`, so one list call answers it — never parse a body to find out.
+
+Some bodies still carry a `**Blocked by:**` line from before this convention. **It is prose, it is not authoritative, and it may be wrong.** Keep it for the reasoning it carries — why an ordering matters is worth more than the edge — but when it disagrees with the dependency graph, the graph wins. Do not add such a line to a new issue; record the edge and let prose explain only the *why*.
+
+Dependencies are **advisory**: GitHub does not prevent a blocked issue from closing, so `Fixes #N` works regardless. The graph is for deciding what to pick up, not a safety rail.
+
 ## Invocable procedures
 
 Two skills in `.claude/skills/`, each pinned to its own model. They hold **procedure**; this file holds **conventions**; neither restates the other.

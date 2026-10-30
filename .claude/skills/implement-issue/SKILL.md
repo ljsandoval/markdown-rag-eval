@@ -1,6 +1,6 @@
 ---
 name: implement-issue
-description: Implement one GitHub issue, or every unblocked issue carrying a label. Reads the issue and the spec section it names, implements, posts findings as an issue comment, closes via a Fixes commit, and verifies the close actually fired. Stops rather than guessing when the spec is ambiguous. Takes an issue number or a label such as phase-1.
+description: Implement one GitHub issue, or every unblocked issue carrying a label. Reads the issue and the spec section it names, implements, posts findings as an issue comment, closes via a Fixes commit, and verifies the close actually fired. Resolves blockers from GitHub issue dependencies, not from body prose. Stops rather than guessing when the spec is ambiguous. Takes an issue number or a label such as phase-1.
 model: sonnet
 ---
 
@@ -14,16 +14,23 @@ Scope is the argument given: a single issue number, or a label such as `phase-1`
 
 ## Selecting what to work
 
-For a single issue number, check it is open and unblocked, then work it.
+**Blockers come from GitHub issue dependencies.** One call returns the graph, and each blocker node carries its state:
 
-For a label:
+```sh
+gh issue list --state open --label <label> --json number,title,blockedBy --limit 50
+```
 
-1. List open issues with that label.
-2. Read each body's `Blocked by:` line and resolve the issue numbers it names.
-3. An issue is **unblocked** when every issue it names is closed, or it names none.
-4. **If nothing is unblocked, stop and say so.** That is a finding about the dependency graph, not a reason to pick something anyway.
+An issue is **unblocked when every node in its `blockedBy` is closed, or it has none**.
+
+**Never read a `Blocked by:` line from a body to decide this.** Some issues still carry one from before the convention changed; it is prose kept for the reasoning it holds, it is not authoritative, and it can disagree with the graph. The graph wins. If you notice a disagreement, say so in a comment on the issue rather than fixing it silently — one of them is wrong and which one matters.
+
+For a single issue number: `gh issue view N --json state,blockedBy`, confirm it is open and unblocked, then work it.
+
+For a label: work the unblocked ones. **If nothing is unblocked, stop and say so.** That is a finding about the dependency graph, not a reason to pick something anyway.
 
 Do not reorder around a blocker. Do not start something whose blocker is merely "nearly done".
+
+**If the work reveals a dependency that is not recorded, record it** — `gh issue edit N --add-blocked-by M` — and say so in your report. The edge is bidirectional automatically, so never edit both issues.
 
 ## Working one issue
 
@@ -43,7 +50,7 @@ Stop and report rather than working around any of these:
 
 - Tests fail in a way the spec does not explain.
 - The spec is **ambiguous** rather than wrong. A wrong spec you amend in the same commit, per `CLAUDE.md`; an ambiguous one needs a decision that is not yours.
-- `Fixes #N` did not close the issue. That is the mechanism the tracking rests on and a silent failure matters more than the issue.
+- `Fixes #N` did not close the issue. That is the mechanism the tracking rests on and a silent failure matters more than the issue. Note that issue dependencies are advisory and never prevent a close, so a blocked issue is not an explanation for this.
 - A change would touch a frozen fixture.
 - An issue's work turns out to belong to a different issue.
 

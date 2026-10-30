@@ -34,7 +34,9 @@ Issues reference the spec and never restate it, which only works if the referenc
 
 **3. Is the stated dependency order correct, including toolchain order?**
 
-Parse each `Blocked by:` and ask whether it is true, and whether anything missing should be there. Logical dependencies between modules are the easy half; the half that gets missed comes from the build and the tooling.
+Read the graph, not the prose: `gh issue list --state open --json number,title,blockedBy --limit 50` returns every edge in one call, with each blocker's state. Ask whether each edge is true, and whether anything missing should be there. Logical dependencies between modules are the easy half; the half that gets missed comes from the build and the tooling.
+
+Some bodies still carry a `**Blocked by:**` line predating the dependency graph. **The graph is authoritative.** Where a line disagrees with it, that is a finding worth reporting, not a line to quietly match — one of the two is wrong and which one tells you something.
 
 **4. Does the spec define every term its acceptance criteria use?**
 
@@ -52,7 +54,7 @@ A restated requirement is a second mutable home for the same fact and will drift
 
 Two kinds, and the distinction is the whole point of a review being separate from implementation.
 
-**Mechanical defects — fix them.** A dangling cross-reference, a wrong issue number in a `Blocked by:`, a dependency that is plainly missing, a typo in a path. One commit, referencing the sections touched. These have one correct answer and no judgement in them.
+**Mechanical defects — fix them.** A dangling cross-reference, a dependency that is plainly missing or plainly wrong, a typo in a path. One commit, referencing the sections touched. These have one correct answer and no judgement in them. A missing or wrong edge is fixed with `gh issue edit N --add-blocked-by M` / `--remove-blocked-by M`, which is bidirectional, so never edit the other issue to match.
 
 **Anything needing a decision — do not decide it.** An undefined term, an ambiguous requirement, a missing acceptance criterion, a dependency that might be deliberate. Post a comment on the issue it affects, state the question and why it matters, and **leave it open**. A review that quietly resolves ambiguities removes the reason it was run.
 
